@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Procedural Memory Graph (PMG)</title>
+<style>
+  :root{
+    --bg:#ffffff; --bg2:#f6f8fb; --panel:#ffffff; --panel2:#eef1f6; --line:#dbe1ea;
+    --text:#1c2530; --dim:#5b6b82; --mono:"SF Mono","Fira Code",Consolas,monospace;
+    --canonical:#2f6fe0; --alt:#b9770f; --loop:#d0472c; --physics:#0f8a6c; --param:#7b3fbf;
+    --maxw:1000px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{background:var(--bg);color:var(--text);font:16px/1.65 -apple-system,"Segoe UI",Roboto,sans-serif;}
+  a{color:var(--canonical);text-decoration:none;} a:hover{text-decoration:underline;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+  .mono{font-family:var(--mono);}
+  em{color:#33455e;}
+
+  nav{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+  nav .wrap{display:flex;align-items:center;gap:14px;height:54px;}
+  nav .brand{font-weight:700;font-size:15px;white-space:nowrap;flex:none;}
+  nav .brand .tag{color:var(--dim);font-weight:400;font-size:12px;margin-left:6px;}
+  nav .links{margin-left:auto;display:flex;gap:4px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
+  nav .links::-webkit-scrollbar{display:none;}
+  nav .links a{color:var(--dim);font-size:13.5px;padding:6px 9px;border-radius:7px;white-space:nowrap;}
+  nav .links a:hover{background:var(--panel2);color:var(--text);text-decoration:none;}
+  @media(max-width:680px){nav .brand .tag{display:none;} nav .links a{font-size:12.5px;padding:6px 7px;}}
+
+  /* ---------- hero: title · one sentence · animated flow · buttons ---------- */
+  header.hero{padding:84px 0 60px;text-align:center;}
+  h1{font-size:clamp(30px,5vw,50px);line-height:1.1;font-weight:750;letter-spacing:-.02em;max-width:860px;margin:0 auto;}
+  h1 .grad{background:linear-gradient(100deg,#2f6fe0,#0f8a6c);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .sub{max-width:680px;margin:18px auto 0;color:var(--dim);font-size:17.5px;}
+
+  .flow{display:flex;align-items:center;justify-content:center;margin:44px auto 0;max-width:920px;}
+  .fnode{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px 18px;min-width:160px;text-align:center;box-shadow:0 1px 3px rgba(28,37,48,.05);}
+  .fnode .ft{font-weight:660;font-size:14.5px;}
+  .fnode .fd{font-size:11.5px;color:var(--dim);margin-top:3px;font-family:var(--mono);}
+  .fnode.hl{border-color:var(--canonical);background:#f4f8ff;}
+  .fnode .inf{font-size:24px;line-height:1;color:var(--physics);font-weight:700;}
+  .pb{height:4px;background:var(--panel2);border-radius:3px;margin-top:8px;overflow:hidden;}
+  .pb i{display:block;height:100%;width:30%;background:var(--canonical);border-radius:3px;animation:pbfill 6s ease-in-out infinite;}
+  @keyframes pbfill{0%{width:2%}90%{width:100%}100%{width:100%}}
+  .fconn{width:74px;height:2px;background:var(--line);position:relative;flex:none;}
+  .fconn::after{content:"";position:absolute;top:-2.5px;left:0;width:7px;height:7px;border-radius:50%;background:var(--canonical);animation:travel 2s linear infinite;}
+  .fconn.d1::after{animation-delay:.0s} .fconn.d2::after{animation-delay:.66s} .fconn.d3::after{animation-delay:1.33s}
+  @keyframes travel{0%{left:0;opacity:0}18%{opacity:1}82%{opacity:1}100%{left:calc(100% - 7px);opacity:0}}
+  .minigraph{display:flex;gap:5px;justify-content:center;margin-top:8px;}
+  .minigraph i{width:9px;height:9px;border-radius:3px;background:#c9d7f2;border:1px solid var(--canonical);animation:npulse 2.4s ease-in-out infinite;}
+  .minigraph i:nth-child(2){animation-delay:.3s}.minigraph i:nth-child(3){animation-delay:.6s}.minigraph i:nth-child(4){animation-delay:.9s}.minigraph i:nth-child(5){animation-delay:1.2s}
+  @keyframes npulse{0%,100%{opacity:.35}50%{opacity:1}}
+  .exicons{margin-top:6px;font-size:15px;letter-spacing:5px;}
+  @media(max-width:820px){
+    .flow{flex-direction:column;gap:0;}
+    .fconn{width:2px;height:40px;}
+    .fconn::after{left:-2.5px;top:0;animation:traveld 2s linear infinite;}
+    .fconn.d2::after{animation-delay:.66s}.fconn.d3::after{animation-delay:1.33s}
+    @keyframes traveld{0%{top:0;opacity:0}18%{opacity:1}82%{opacity:1}100%{top:calc(100% - 7px);opacity:0}}
+  }
+  .cta{margin-top:40px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+  .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:11px 18px;border-radius:10px;font-size:14.5px;font-weight:600;cursor:pointer;transition:.15s;}
+  .btn:hover{border-color:var(--canonical);text-decoration:none;transform:translateY(-1px);}
+  .btn.primary{background:linear-gradient(100deg,#2f6fe0,#0f8a6c);border-color:transparent;color:#fff;}
+  .btn.primary:hover{border-color:transparent;}
+
+  /* ---------- sections ---------- */
+  section{padding:64px 0;border-top:1px solid var(--line);}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--physics);margin-bottom:10px;}
+  h2{font-size:clamp(23px,3.2vw,32px);letter-spacing:-.01em;font-weight:720;}
+  h3{font-size:17.5px;margin:0 0 6px;font-weight:650;}
+  .lead{color:var(--dim);font-size:17px;max-width:760px;margin-top:14px;}
+  p.body{margin-top:14px;color:#38455a;max-width:780px;}
+  .muted{color:var(--dim);}
+
+  /* world evolution statement */
+  .statement{margin:34px auto 0;text-align:center;max-width:760px;}
+  .statement .l{font-size:clamp(20px,3vw,29px);font-weight:700;letter-spacing:-.01em;padding:6px 0;}
+  .statement .l.dim{color:#9aa7bd;font-weight:600;text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#d9614a88;}
+  .statement .l .grad{background:linear-gradient(100deg,#2f6fe0,#0f8a6c);-webkit-background-clip:text;background-clip:text;color:transparent;}
+
+  /* state chain */
+  .chain{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:0;margin:38px auto 0;}
+  .snode{background:var(--panel);border:1.5px solid var(--canonical);border-radius:11px;padding:10px 16px;font-weight:650;font-size:14px;text-align:center;}
+  .snode .sd{display:block;font-weight:400;color:var(--dim);font-size:11px;font-family:var(--mono);margin-top:2px;}
+  .sarrow{color:#aab6c8;padding:0 12px;font-size:18px;}
+  .chain-note{display:flex;justify-content:center;margin-top:16px;}
+  .chain-note .cn{background:var(--bg2);border:1px dashed var(--line);border-radius:10px;padding:10px 16px;font-size:12.5px;color:var(--dim);font-family:var(--mono);}
+  @media(max-width:820px){.chain{flex-direction:column;gap:6px;} .sarrow{transform:rotate(90deg);padding:2px 0;}}
+
+  /* hierarchy inline */
+  .hline{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;margin-top:26px;font-size:14px;}
+  .hline .h{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:5px 13px;font-weight:600;}
+  .hline .h.hl{background:#f4f8ff;border-color:var(--canonical);}
+  .hline .a{color:#aab6c8;}
+
+  figure{margin:30px 0 0;}
+  video{width:100%;display:block;border-radius:14px;border:1px solid var(--line);background:#0b0e14;box-shadow:0 2px 12px rgba(28,37,48,.09);}
+  figcaption{color:var(--dim);font-size:13.5px;margin-top:10px;text-align:center;}
+
+  .pipe{display:flex;align-items:stretch;flex-wrap:wrap;margin-top:30px;}
+  .stage{flex:1;min-width:140px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 12px;text-align:center;}
+  .stage .n{font-family:var(--mono);font-size:11px;color:var(--dim);}
+  .stage .t{font-weight:650;margin-top:3px;font-size:14px;}
+  .stage .d{color:var(--dim);font-size:11.5px;margin-top:4px;}
+  .stage.hl{border-color:var(--canonical);box-shadow:0 0 0 1px rgba(47,111,224,.28) inset;background:#f4f8ff;}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:20px;padding:0 6px;}
+  @media(max-width:820px){.arrow{transform:rotate(90deg);width:100%;padding:4px 0;}}
+
+  .strip{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:26px;}
+  @media(max-width:820px){.strip{grid-template-columns:repeat(3,1fr);}}
+  .strip figure{margin:0;} .strip img{width:100%;border-radius:8px;border:1px solid var(--line);display:block;aspect-ratio:16/9;object-fit:cover;}
+  .strip .cap{font-family:var(--mono);font-size:10.5px;color:var(--dim);text-align:center;margin-top:4px;}
+
+  .viewerbox{margin-top:28px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg2);box-shadow:0 2px 14px rgba(28,37,48,.07);}
+  .viewerbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel2);}
+  .viewerbar .dot{width:10px;height:10px;border-radius:50%;background:#c4cede;}
+  .viewerbar .ttl{font-size:13px;color:var(--dim);}
+  .viewerbar .open{margin-left:auto;font-size:12.5px;}
+  iframe.viewer{width:100%;height:76vh;min-height:520px;border:0;display:block;background:var(--bg);}
+
+  /* runtime loop (vertical) */
+  .loopv{margin:32px auto 0;display:flex;flex-direction:column;align-items:center;gap:7px;max-width:520px;}
+  .loopv .lv{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 20px;font-weight:600;font-size:14px;text-align:center;width:100%;}
+  .loopv .lv .s{display:block;color:var(--dim);font-weight:400;font-size:11.5px;margin-top:2px;}
+  .loopv .lv.hl{border-color:var(--canonical);background:#f4f8ff;}
+  .loopv .lv.eng{border-color:#a07bc9;background:#faf6fe;}
+  .loopv .down{color:#aab6c8;font-size:15px;line-height:1;}
+  .exrow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px;width:100%;}
+  .exrow .ex{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px;text-align:center;font-size:13px;font-weight:600;}
+  .exrow .ex span{display:block;font-size:18px;margin-bottom:2px;}
+
+  /* motivation q-rows */
+  .qrows{margin-top:26px;display:flex;flex-direction:column;gap:9px;}
+  .qrow{display:grid;grid-template-columns:210px 1fr;gap:16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 16px;}
+  .qrow.hl{border-color:var(--canonical);background:#f4f8ff;}
+  .qrow .lbl{font-weight:650;font-size:14px;}
+  .qrow .q{color:var(--dim);font-size:14px;}
+  .qrow.hl .q{color:#33455e;}
+  @media(max-width:680px){.qrow{grid-template-columns:1fr;gap:2px;}}
+  details.moretbl{margin-top:18px;max-width:860px;}
+  details.moretbl summary{cursor:pointer;color:var(--dim);font-size:13.5px;}
+  table.cmp{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;}
+  table.cmp th{text-align:left;padding:9px 12px;border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);}
+  table.cmp td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;color:#42506a;}
+  table.cmp td:first-child{font-weight:650;color:var(--text);}
+  table.cmp tr.hl td{background:#f4f8ff;color:var(--text);}
+
+/* Thesis Band — editorial statement */
+
+.thesis{
+  background:#fafafa;
+  border-top:1px solid #ececec;
+  border-bottom:1px solid #ececec;
+}
+
+.thesis .wrap{
+  padding:44px 24px;
+  text-align:center;
+}
+.thesis .k{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.22em;
+    text-transform:uppercase;
+
+    color:#7b7b7b;
+
+    margin-bottom:22px;
+}
+
+.thesis .k::before,
+.thesis .k::after{
+    content:"";
+    width:42px;
+    height:1px;
+    background:#d4d4d4;
+}
+
+.thesis .t{
+  max-width:720px;
+  margin:auto;
+  font-size:clamp(24px,2.6vw,30px);
+  line-height:1.45;
+  font-weight:675;
+  color:#222;
+}
+
+.thesis .t .pos{
+  background:linear-gradient(90deg,#6aa8ff,#4fd6ab);
+  -webkit-background-clip:text;
+  background-clip:text;
+  color:transparent;
+}
+
+.thesis .t .neg{
+  color:#71829d;
+  text-decoration:line-through;
+  text-decoration-color:rgba(208,71,44,.45);
+  text-decoration-thickness:1.5px;
+}
+  /* closing */
+  .bigquote{margin:40px auto 0;max-width:840px;text-align:center;font-size:clamp(21px,3.2vw,31px);font-weight:720;letter-spacing:-.01em;line-height:1.35;}
+  .bigquote .grad{background:linear-gradient(100deg,#2f6fe0,#0f8a6c);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .threeline{display:flex;justify-content:center;gap:26px;flex-wrap:wrap;margin-top:30px;color:var(--dim);font-size:15px;text-align:center;}
+  .threeline b{color:var(--text);}
+
+  footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--dim);font-size:13.5px;}
+  footer .wrap{display:flex;gap:16px;flex-wrap:wrap;align-items:center;justify-content:space-between;}
+  .draft{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--alt);border:1px solid #e0c48a;border-radius:20px;padding:2px 9px;}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="brand">PMG<span class="tag">Procedural Memory Graph</span></div>
+  <div class="links">
+    <a href="#memory">What is it</a>
+    <a href="#evolution">World Evolution</a>
+    <a href="#compile">Compiler</a>
+    <a href="#graph">Graph</a>
+    <a href="#reasoning">Reasoning</a>
+    <a href="#motivation">Motivation</a>
+    <a href="#vision">Vision</a>
+  </div>
+</div></nav>
+
+<!-- HERO — title · one sentence · animated flow · buttons -->
+<header class="hero"><div class="wrap">
+  <h1>One demonstration becomes a<br><span class="grad">reusable procedural memory</span></h1>
+<p class="sub">
+The Procedural Memory Graph compiles expert demonstrations into explicit procedural memories that capture how the world evolves during a task, making expert knowledge reusable for future execution.</p>
+  <div class="flow">
+    <div class="fnode"><div class="ft">Expert demonstration</div><div class="fd">egocentric video + audio</div><div class="pb"><i></i></div></div>
+    <div class="fconn d1"></div>
+    <div class="fnode"><div class="ft">PMG Compiler</div><div class="fd">perceive → expand → compress</div></div>
+    <div class="fconn d2"></div>
+    <div class="fnode hl"><div class="ft">Procedural Memory Graph</div><div class="minigraph"><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="fconn d3"></div>
+    <div class="fnode"><div class="inf">∞</div><div class="ft">executions</div><div class="fd">human or humanoid</div></div>
+  </div>
+
+  <div class="cta">
+    <a class="btn primary" href="#graph">Explore the graph</a>
+    <a class="btn" href="idea.md" target="_blank">Design document</a>
+  </div>
+</div></header>
+
+<!-- THESIS -->
+<div class="thesis"><div class="wrap">
+  <div class="k">The thesis</div>
+  <div class="t">Procedures should be stored as explicit world evolution, not <span class="neg">implicit trajectories or model weights</span>.</div>
+</div></div>
+
+<!-- WHAT IS PROCEDURAL MEMORY -->
+<section id="memory"><div class="wrap">
+  <div class="eyebrow">What is procedural memory?</div>
+  <h2>Humans don't remember procedures as video</h2>
+  <p class="lead">We compress experience into meaningful milestones, keep the decisions that matter, and discard incidental movement. PMG gives machines the same structure: an explicit hierarchy, learned from demonstrations, that any reasoning system can read, edit, and execute.</p>
+  <div class="hline">
+    <span class="h">Task</span><span class="a">→</span>
+    <span class="h">Milestones</span><span class="a">→</span>
+    <span class="h hl">Procedural States</span><span class="a">→</span>
+    <span class="h">Execution Block</span><span class="a">→</span>
+    <span class="h">Parameterized Actions</span>
+  </div>
+  <p class="body muted" style="text-align:center;max-width:680px;margin:18px auto 0;font-size:14.5px">Only procedurally meaningful information enters the graph — if forgetting it wouldn't prevent someone from reproducing the task, it is discarded.</p>
+</div></section>
+
+<!-- WORLD EVOLUTION -->
+<section id="evolution"><div class="wrap">
+  <div class="eyebrow">The core idea</div>
+  <div class="statement">
+    <div class="l dim">Videos are memory.</div>
+    <div class="l">Videos are <em>observations</em>.</div>
+    <div class="l">World evolution is memory. <span class="grad">PMG stores world evolution.</span></div>
+  </div>
+  <div class="chain">
+    <div class="snode">Joint Cold<span class="sd">iron placed · 350 °C</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode">Solder Molten<span class="sd">heat + pull, two hands</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode">Pin Removed<span class="sd">stubs remain? loop</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode">Hole Clear<span class="sd">ready for rework</span></div>
+  </div>
+  <div class="chain-note"><div class="cn">every state owns: world representation · parameterized actions · observable conditions · exit criteria</div></div>
+  <p class="body" style="text-align:center;max-width:700px;margin:22px auto 0">Nodes are <b>world states</b>, not controller states or trajectories. Actions transform states; observable conditions verify progress; exit criteria decide transitions — including loops for retries and recovery.</p>
+</div></section>
+
+<!-- COMPILER -->
+<section id="compile"><div class="wrap">
+  <div class="eyebrow">From demonstration to graph</div>
+  <h2>A knowledge compiler, not a recording</h2>
+  <p class="lead">One real 10-minute demonstration — desoldering a header, including a genuine failure and strategy switch — compiled into procedural memory.</p>
+
+  <figure>
+    <video controls muted playsinline loop poster="assets/poster.jpg" preload="metadata">
+      <source src="assets/desolder_ff.mp4" type="video/mp4">
+    </video>
+    <figcaption>Source demonstration · 10:01 @ 50 fps, shown at 12×</figcaption>
+  </figure>
+
+  <div class="pipe">
+    <div class="stage"><div class="n">stage 1</div><div class="t">Perception</div><div class="d">objects · contacts · geometry · speech</div></div>
+    <div class="arrow">→</div>
+    <div class="stage"><div class="n">stage 2</div><div class="t">PMG Compiler</div><div class="d">expand first, compress later</div></div>
+    <div class="arrow">→</div>
+    <div class="stage hl"><div class="n">memory</div><div class="t">Procedural Memory Graph</div><div class="d">milestones · states · action DAGs</div></div>
+  </div>
+
+  <div class="strip">
+    <figure><img src="frames/s1a_b.jpg" alt=""><div class="cap">Board Mounted</div></figure>
+    <figure><img src="frames/s2a_b.jpg" alt=""><div class="cap">Spacer Broken</div></figure>
+    <figure><img src="frames/s3b_b.jpg" alt=""><div class="cap">Iron Heating</div></figure>
+    <figure><img src="frames/s5b_b.jpg" alt=""><div class="cap">Solder Molten</div></figure>
+    <figure><img src="frames/s8b_b.jpg" alt=""><div class="cap">Pin Pulling</div></figure>
+    <figure><img src="frames/s9c_b.jpg" alt=""><div class="cap">Holes Cleared</div></figure>
+  </div>
+  <figcaption>Frame ranges become Procedural States — new nodes only on meaningful procedural events, never from time passing alone.</figcaption>
+</div></section>
+
+<!-- GRAPH -->
+<section id="graph"><div class="wrap">
+  <div class="eyebrow">The representation</div>
+  <h2>Explore the compiled graph</h2>
+  <p class="lead">This is not a visualization of the demonstration — it <em>is</em> the procedural memory constructed from it. Click a milestone to expand its states, a state to open its compartments, an action to unfold its parameters.</p>
+  <div class="viewerbox">
+    <div class="viewerbar"><span class="dot"></span><span class="dot" style="background:#e0be7d"></span><span class="dot" style="background:#9cc7b6"></span>
+      <span class="ttl">pmg_viewer.html — Desolder Header · schema v0.10</span>
+      <a class="open" href="pmg_viewer.html" target="_blank">open in new tab ↗</a></div>
+    <iframe class="viewer" src="pmg_viewer.html" title="PMG interactive graph viewer" loading="lazy"></iframe>
+  </div>
+  <p class="muted" style="margin-top:14px;font-size:14px">Second worked example (physics-driven states, steeping loop): <a href="pmg_viewer2.html" target="_blank">Make Tea →</a></p>
+</div></section>
+
+<!-- REASONING — introduced only after the graph -->
+<section id="reasoning"><div class="wrap">
+  <div class="eyebrow">Now — how do we use it?</div>
+  <h2>The Procedural Reasoning Engine</h2>
+  <p class="lead">Every runtime decision is grounded in the Procedural Memory Graph. A <b>Procedural Reasoning Engine</b> consumes it at runtime — localizing the current world state in the graph, deciding the next step, requesting perception verification, and guiding whichever executor is present. Today it may be implemented with an LLM; tomorrow, a specialized model. The architecture doesn't care.</p>
+
+  <div class="loopv">
+    <div class="lv">Current Observation</div><div class="down">↓</div>
+    <div class="lv">Perception</div><div class="down">↓</div>
+    <div class="lv">Procedural State Matching <span class="s">"where in the procedure am I?"</span></div><div class="down">↓</div>
+    <div class="lv hl">Procedural Memory Graph <span class="s">the persistent memory</span></div><div class="down">↓</div>
+    <div class="lv eng">Procedural Reasoning Engine <span class="s">reads · reasons · decides · verifies</span></div><div class="down">↓</div>
+    <div class="lv">Action Selection</div><div class="down">↓</div>
+    <div class="exrow">
+      <div class="ex"><span>🧑‍🔧</span>Human trainee</div>
+      <div class="ex"><span>🤖</span>Humanoid robot</div>
+      <div class="ex"><span>◈</span>Intelligent agent</div>
+    </div>
+  </div>
+  <p class="body muted" style="text-align:center;max-width:640px;margin:20px auto 0;font-size:14.5px">The procedural memory never stores embodiment-specific trajectories. The memory stays unchanged — only the executor changes.</p>
+</div></section>
+
+<!-- MOTIVATION (moved low, non-defensive) -->
+<section id="motivation"><div class="wrap">
+  <div class="eyebrow">Motivation</div>
+  <h2>Existing systems answer different questions</h2>
+  <p class="lead">PMG doesn't compete with behavior trees, imitation learning, or foundation models — they were designed for different roles. PMG is the procedural-memory layer that sits beneath and alongside them.</p>
+  <div class="qrows">
+    <div class="qrow"><div class="lbl">Behavior Trees / ROS</div><div class="q">How should I execute a manually designed procedure?</div></div>
+    <div class="qrow"><div class="lbl">Imitation Learning</div><div class="q">How do I imitate this demonstration?</div></div>
+    <div class="qrow"><div class="lbl">Foundation Models</div><div class="q">How do I reason from broad prior knowledge?</div></div>
+    <div class="qrow hl"><div class="lbl">Procedural Memory Graph</div><div class="q">How should procedural knowledge itself be represented, learned, accumulated, and reused?</div></div>
+  </div>
+  <details class="moretbl">
+    <summary>Representation comparison — strengths and limitations</summary>
+    <table class="cmp">
+      <thead><tr><th>Approach</th><th>Strength</th><th>Limitation</th></tr></thead>
+      <tbody>
+        <tr><td>Hardcoded workflows</td><td>Deterministic and reliable</td><td>Hand-authored; hard to learn from demonstrations or evolve</td></tr>
+        <tr><td>Trajectory / imitation learning</td><td>Captures expert motion</td><td>Hard to inspect, edit, merge, or explain</td></tr>
+        <tr><td>Language / generic LLMs</td><td>Flexible, broad reasoning</td><td>Procedural knowledge stays implicit in weights — non-persistent, hard to verify</td></tr>
+        <tr class="hl"><td>Procedural Memory Graph</td><td>Explicit, editable, persistent procedural memory</td><td>Purpose-built for learning, storing, and executing procedures</td></tr>
+      </tbody>
+    </table>
+  </details>
+  <p class="body">The design philosophy: <b>separate procedural knowledge from the reasoning system.</b> The graph stores the procedure; reasoning systems consume it rather than implicitly memorizing it.</p>
+</div></section>
+
+<!-- VISION -->
+<section id="vision"><div class="wrap">
+  <div class="eyebrow">Vision</div>
+  <div class="bigquote">"A demonstration is not the memory.<br>It is merely <span class="grad">evidence from which procedural memory is constructed</span>."</div>
+  <div class="threeline">
+    <div><b>Learning</b><br>builds the memory</div>
+    <div><b>Reasoning</b><br>traverses it</div>
+    <div><b>Execution</b><br>follows it</div>
+  </div>
+  <p class="body muted" style="text-align:center;max-width:700px;margin:28px auto 0;font-size:14.5px">Current research focuses on the representation itself — the procedural hierarchy, the State schema, Action Groups, object representation, observable conditions, and execution semantics. Perception, compiler algorithms, and reasoning engines are layers built on top.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <div>Procedural Memory Graph · working research draft · <span class="draft">v0.10</span></div>
+  <div>
+    <a href="pmg_viewer.html" target="_blank">Interactive graph</a> ·
+    <a href="pmg_viewer2.html" target="_blank">Make Tea example</a> ·
+    <a href="idea.md" target="_blank">Design doc</a>
+  </div>
+</div></footer>
+
+</body>
+</html>

@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PMG Viewer 2 — Make Tea — Procedural Memory Graph v0.10</title>
+<script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+<style>
+  :root {
+    --bg:#f6f8fb; --panel:#ffffff; --panel2:#eef1f6; --line:#dbe1ea;
+    --text:#1c2530; --dim:#5b6b82; --mono:"SF Mono","Fira Code",Consolas,monospace;
+    --canonical:#2f6fe0; --alt:#b9770f; --loop:#d0472c; --physics:#0f8a6c; --param:#7b3fbf; --chip:#eef1f8;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; }
+  body { background:var(--bg); color:var(--text); font:14px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+
+  #topbar { display:flex; align-items:center; gap:14px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line); height:52px; }
+  #topbar h1 { font-size:15px; font-weight:600; white-space:nowrap; }
+  #topbar h1 .v { color:var(--dim); font-weight:400; font-size:12px; margin-left:6px; }
+  #crumbs { flex:1; display:flex; align-items:center; gap:6px; font-size:13px; overflow:hidden; white-space:nowrap; }
+  .crumb { color:var(--canonical); cursor:pointer; padding:3px 8px; border-radius:6px; }
+  .crumb:hover { background:var(--panel2); }
+  .crumb.current { color:var(--text); cursor:default; background:var(--panel2); }
+  .crumb-sep { color:var(--dim); }
+  #topbar button { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 11px; font-size:12.5px; cursor:pointer; }
+  #topbar button:hover { border-color:var(--canonical); }
+
+  #main { position:relative; height:calc(100% - 52px); }
+  #cy { position:absolute; inset:0; }
+  #viewtitle { position:absolute; top:12px; left:14px; z-index:5; pointer-events:none; }
+  #viewtitle .t { font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
+  #viewtitle .n { font-size:17px; font-weight:600; }
+  #viewtitle .syn { font-size:11px; color:var(--dim); margin-top:2px; }
+
+  #legend { position:absolute; top:12px; right:12px; z-index:6; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:12px; display:none; min-width:250px; }
+  #legend.open { display:block; }
+  #legend h3 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin-bottom:8px; }
+  .lg-row { display:flex; align-items:center; gap:8px; margin:5px 0; }
+  .lg-swatch { width:22px; height:0; border-top:3px solid; border-radius:2px; flex:none; }
+  .lg-box { width:14px; height:14px; border-radius:4px; flex:none; }
+
+  /* Contextual bottom info dock */
+  #dock { position:absolute; left:0; right:0; bottom:0; z-index:15; background:var(--panel); border-top:1px solid var(--line);
+          max-height:0; overflow:hidden; transition:max-height .18s ease; }
+  #dock.open { max-height:42vh; }
+  #dockInner { max-height:42vh; overflow-y:auto; padding:0 18px 42px; }
+  #dockHead { position:sticky; top:0; background:var(--panel); padding:12px 0 8px; display:flex; align-items:flex-start; gap:10px; border-bottom:1px solid var(--line); z-index:2; }
+  #dockKind { font-size:10.5px; font-family:var(--mono); text-transform:uppercase; letter-spacing:.06em; color:var(--dim); padding:3px 8px; border:1px solid var(--line); border-radius:20px; white-space:nowrap; }
+  #dockTitle { font-size:15px; font-weight:600; flex:1; }
+  #dockClose { background:none; border:none; color:var(--dim); font-size:20px; cursor:pointer; line-height:1; }
+  #dockBody { padding-top:10px; }
+
+  .cols { display:flex; gap:18px; flex-wrap:wrap; }
+  .col { flex:1; min-width:230px; }
+  .sec h4 { font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:14px 0 7px; }
+  .kv { font-size:12.5px; margin:3px 0; }
+  .kv b { color:var(--dim); font-weight:500; }
+  .mono { font-family:var(--mono); font-size:12px; }
+  ul.plain { list-style:none; } ul.plain li { padding:3px 0 3px 14px; position:relative; font-size:12.5px; }
+  ul.plain li::before { content:"•"; position:absolute; left:2px; color:var(--dim); }
+  .badge { display:inline-block; font-size:10.5px; font-family:var(--mono); padding:2px 8px; border-radius:20px; background:var(--chip); margin-right:6px; }
+  .badge.physics { color:var(--physics); border:1px solid var(--physics); background:transparent; }
+  .cond { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0; }
+  .cond .pid { font-family:var(--mono); font-size:11px; color:var(--dim); }
+  .cond .pred { font-family:var(--mono); font-size:12.5px; margin:3px 0; } .cond .pred .rel { color:var(--alt); }
+  .cond .qual { font-size:11px; color:var(--physics); }
+  details.contract { margin-top:5px; } details.contract summary { cursor:pointer; color:var(--dim); font-size:11.5px; }
+  details.contract .body { padding:6px 0 2px 12px; color:var(--dim); font-size:12px; } details.contract .body div { margin:2px 0; }
+  .exit { background:var(--panel2); border-left:3px solid var(--canonical); border-radius:6px; padding:8px 10px; margin:6px 0; }
+  .exit.loop { border-left-color:var(--loop); } .exit.alt { border-left-color:var(--alt); } .exit.intended { border-left-color:var(--dim); }
+  .exit .expr { font-family:var(--mono); font-size:12px; margin-bottom:6px; } .exit .expr .op { color:var(--alt); }
+  .goto { background:var(--chip); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:3px 9px; font-size:11.5px; cursor:pointer; }
+  .goto:hover { border-color:var(--canonical); color:var(--canonical); }
+  table.objs { width:100%; border-collapse:collapse; font-size:12px; } table.objs td { padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  table.objs td:first-child { font-family:var(--mono); color:var(--canonical); white-space:nowrap; }
+  .coord { font-size:12px; color:var(--alt); padding:3px 0 3px 16px; position:relative; margin:3px 0; } .coord::before { content:"⇄"; position:absolute; left:0; }
+  .confbar { height:6px; background:var(--panel2); border-radius:4px; overflow:hidden; margin-top:4px; width:200px; } .confbar div { height:100%; background:var(--physics); }
+
+  /* Parameters table — the new first-class Action field */
+  table.params { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px; }
+  table.params th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); font-weight:500; padding:3px 8px; border-bottom:1px solid var(--line); }
+  table.params td { padding:5px 8px; border-bottom:1px solid var(--line); }
+  table.params td.pname { color:var(--param); font-family:var(--mono); font-size:11.5px; }
+  table.params td.pval { font-weight:600; } table.params .unit { color:var(--dim); font-weight:400; }
+  table.params td.ptol { color:var(--dim); font-family:var(--mono); font-size:11px; }
+  .actline { display:flex; gap:8px; align-items:baseline; margin:4px 0; font-size:12.5px; }
+  .actline .rolechip { font-size:10px; font-family:var(--mono); padding:1px 6px; border-radius:12px; border:1px solid var(--line); color:var(--dim); }
+
+  /* (i) glossary tooltips */
+  .info { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--chip); border:1px solid var(--line); color:var(--dim); font-size:9px; font-family:var(--mono); cursor:help; margin-left:5px; vertical-align:middle; }
+  b[data-tip], span.tt[data-tip] { border-bottom:1px dotted #9aa7bd; cursor:help; }
+  [data-tip] { position:relative; }
+  [data-tip]::after { content:attr(data-tip); position:absolute; left:0; bottom:calc(100% + 7px); width:250px; background:#ffffff; border:1px solid var(--line); color:var(--text); font-weight:400; font-size:11.5px; line-height:1.5; padding:8px 10px; border-radius:8px; opacity:0; pointer-events:none; transition:opacity .12s ease .05s; z-index:70; white-space:normal; box-shadow:0 10px 28px rgba(28,37,48,.16); }
+  [data-tip]:hover::after { opacity:1; }
+
+  /* Registry slide-over */
+  #registry { position:absolute; top:0; right:0; bottom:0; width:360px; background:var(--panel); border-left:1px solid var(--line); z-index:20; transform:translateX(100%); transition:transform .18s ease; overflow-y:auto; padding:16px 18px; }
+  #registry.open { transform:translateX(0); }
+  #registry h2 { font-size:15px; margin-bottom:2px; }
+  #registry .sub { color:var(--dim); font-size:12px; margin-bottom:10px; }
+  .robj { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin:7px 0; cursor:pointer; }
+  .robj:hover, .robj.sel { border-color:var(--canonical); }
+  .robj .rid { font-family:var(--mono); font-size:11.5px; color:var(--canonical); } .robj .rcls { font-size:11px; color:var(--dim); float:right; }
+  .robj .raff { font-size:11.5px; color:var(--dim); margin-top:3px; }
+  .closebtn { float:right; background:none; border:none; color:var(--dim); font-size:18px; cursor:pointer; }
+  .note { background:var(--panel2); border:1px dashed var(--line); border-radius:8px; padding:9px 11px; margin-top:12px; font-size:11.8px; color:var(--dim); }
+
+  /* Timeline */
+  #timeline { position:absolute; left:14px; right:14px; bottom:8px; z-index:5; }
+  #tlTrack { position:relative; height:22px; background:var(--panel); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .tl-seg { position:absolute; top:0; bottom:0; cursor:pointer; opacity:.85; } .tl-seg:hover { opacity:1; }
+  .tl-seg.canonical { background:#9cb8ea; } .tl-seg.physics { background:#8fc7b6; } .tl-seg.active { outline:2px solid #1c2530; opacity:1; }
+  .tl-state { position:absolute; top:0; bottom:0; background:#3f74d9aa; border-right:1px solid #ffffff; cursor:pointer; } .tl-state:hover, .tl-state.cur { background:#2f6fe0; }
+  .tl-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--dim); font-family:var(--mono); margin-top:3px; }
+  #cdnerr { display:none; padding:40px; font-size:15px; color:var(--alt); }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <h1>PMG Viewer 2<span class="v">Make Tea · schema v0.10</span></h1>
+  <div id="crumbs"></div>
+  <button id="btnCollapse">Collapse all</button>
+  <button id="btnRegistry">Object Registry</button>
+  <button id="btnLegend">Legend</button>
+</div>
+<div id="main">
+  <div id="viewtitle"><div class="t"></div><div class="n"></div><div class="syn">synthetic example — no source video · frame ranges illustrate the temporal model</div></div>
+  <div id="cy"></div>
+  <div id="legend">
+    <h3>How to read this graph</h3>
+    <div class="lg-row"><span class="lg-box" style="background:#eaf1fc;border:1.5px solid #2f6fe0"></span> Milestone / State (click to expand)</div>
+    <div class="lg-row"><span class="lg-box" style="background:#eef1f6;border:1.5px solid #b9c4de"></span> Expanded state = 4 sibling compartments</div>
+    <div class="lg-row"><span class="lg-box" style="background:#eaf5ef;border:1.5px solid #0f8a6c"></span> Compartment (World / Actions / Obs / Exit)</div>
+    <div class="lg-row"><span class="lg-box" style="background:#eaf0fb;border:1px solid #b9c4de"></span> Action node (⚙ = has Parameters)</div>
+    <div class="lg-row"><span class="lg-swatch" style="border-color:#b9770f;border-top-width:2px"></span> Action dependency ("requires")</div>
+    <div class="lg-row"><span class="lg-swatch" style="border-color:#0f8a6c;border-top-style:dotted"></span> Internal flow (World→Actions→Obs→Exit)</div>
+    <div class="lg-row"><span class="lg-swatch" style="border-color:#d0472c"></span> Loop / recovery transition</div>
+  </div>
+  <div id="dock"><div id="dockInner">
+    <div id="dockHead"><span id="dockKind"></span><div id="dockTitle"></div><button id="dockClose">×</button></div>
+    <div id="dockBody"></div>
+  </div></div>
+  <div id="timeline">
+    <div id="tlTrack"></div>
+    <div class="tl-labels"><span>0:00</span><span>video timeline — click to navigate</span><span>5:20</span></div>
+  </div>
+  <div id="registry"></div>
+</div>
+<div id="cdnerr">Could not load Cytoscape from CDN — an internet connection is required.</div>
+
+<script>
+/* ================================================================
+   PMG_DATA — sample Procedural Memory Graph
+   Task: "Make Tea"  ·  schema v0.10 (Actions now carry Parameters)
+   Synthetic example (no source demonstration). FPS 30, 9600 frames.
+   ================================================================ */
+const FPS = 30, TOTAL_FRAMES = 9600;
+const PMG_DATA = {
+  task: { id:"task_make_tea", name:"Make Tea" },
+
+  registry: [
+    { id:"obj_pan",     cls:"vessel",   name:"Small saucepan", intrinsic:"steel, ~500 ml", geo:"geo/pan.mesh", aff:["graspable","fillable","heatable","pourable"] },
+    { id:"obj_water",   cls:"substance",name:"Water", intrinsic:"potable", geo:"—", aff:["pourable","heatable","boilable"] },
+    { id:"obj_stove",   cls:"appliance",name:"Gas stove", intrinsic:"single burner", geo:"geo/stove.mesh", aff:["ignitable"] },
+    { id:"obj_knob",    cls:"control",  name:"Gas knob", intrinsic:"rotary, OFF–Simmer–High", geo:"geo/knob.mesh", aff:["rotatable"] },
+    { id:"obj_burner",  cls:"work-feature",name:"Burner", intrinsic:"cast iron grate", geo:"—", aff:["supports pan","emits flame"] },
+    { id:"obj_lighter", cls:"tool",     name:"Spark lighter", intrinsic:"piezo", geo:"geo/lighter.mesh", aff:["ignites gas"] },
+    { id:"obj_leaves",  cls:"consumable",name:"Tea leaves", intrinsic:"loose black tea", geo:"—", aff:["measurable","steepable"] },
+    { id:"obj_spoon",   cls:"tool",     name:"Teaspoon", intrinsic:"5 ml", geo:"geo/spoon.mesh", aff:["scooping","stirring"] },
+    { id:"obj_cup",     cls:"vessel",   name:"Serving cup", intrinsic:"ceramic ~200 ml", geo:"geo/cup.mesh", aff:["fillable"] },
+    { id:"obj_strainer",cls:"tool",     name:"Strainer", intrinsic:"mesh", geo:"geo/strainer.mesh", aff:["filters leaves"] }
+  ],
+  registryNote: "Task-level Object Registry — one entry per physical object. Identity is global; per-state Object Instances reference these ids and add only what varies (pose, temperature, contents).",
+
+  conditions: {
+    c_pan_in_hand:  { d:"Pan grasped",            p:["pan","held-by","hand.right"],        q:"instant" },
+    c_water_250:    { d:"~250 ml in pan",          p:["pan.contents","≈","250 ml"],          q:"instant" },
+    c_pan_on_burner:{ d:"Pan seated on burner",    p:["pan","on","burner"],                  q:"sustained ≥ 1s" },
+    c_gas_flowing:  { d:"Gas is flowing",          p:["knob","state","open"],                q:"instant" },
+    c_lighter_ready:{ d:"Lighter in hand, primed", p:["lighter","held-by","hand.left"],      q:"instant" },
+    c_flame_exists: { d:"Burner flame lit",        p:["burner","flame","present"],           q:"sustained ≥ 2s" },
+    c_temp_rising:  { d:"Water temperature rising", p:["water.temp","trend","increasing"],   q:"sustained ≥ 5s" },
+    c_steam:        { d:"Steam visible",           p:["water","emits","steam"],              q:"instant" },
+    c_small_bubbles:{ d:"Small bubbles forming",   p:["water","bubbles","small"],            q:"instant" },
+    c_elapsed_boil: { d:"Heating time elapsed",    p:["elapsed_time","≥","150 s"],           q:"within 240s" },
+    c_rolling_boil: { d:"Rolling boil reached",    p:["water","boil","rolling"],             q:"instant" },
+    c_boil_stable:  { d:"Boil is stable",          p:["water.temp","≈","100 °C"],            q:"sustained ≥ 3s" },
+    c_leaves_added: { d:"Tea leaves in water",     p:["water.contents","includes","leaves"], q:"instant" },
+    c_color_dev:    { d:"Colour developing",       p:["water.colour","trend","darkening"],   q:"sustained ≥ 10s" },
+    c_color_dark:   { d:"Infusion dark enough",    p:["water.colour","≥","amber-brown"],     q:"instant" },
+    c_elapsed_inf:  { d:"Steep time elapsed",      p:["elapsed_time","≥","180 s"],           q:"within 300s" },
+    c_cup_filled:   { d:"Cup filled",              p:["cup.contents","≈","200 ml"],          q:"instant" },
+    c_pan_empty:    { d:"Pan emptied",             p:["pan.contents","≈","0 ml"],            q:"instant" }
+  },
+  contracts: {
+    c_flame_exists: { m:"flame-region detector / thermal bloom", tol:"—", conf:0.9, ev:"synthetic" },
+    c_rolling_boil: { m:"surface-turbulence classifier (VLM)",   tol:"agitation > 0.6", conf:0.74, ev:"synthetic" },
+    c_water_250:    { m:"fill-line estimate vs pan model",       tol:"±30 ml", conf:0.7, ev:"synthetic" },
+    c_color_dark:   { m:"mean hue/brightness of liquid ROI",     tol:"ΔE < 8", conf:0.68, ev:"synthetic" }
+  },
+
+  milestones: [
+    { id:"m1", name:"Take Pan",          kind:"canonical", fr:[0,300],     states:["s1a","s1b"] },
+    { id:"m2", name:"Pour 1 Cup Water",  kind:"canonical", fr:[300,750],   states:["s2a","s2b"] },
+    { id:"m3", name:"Place Pan on Stove",kind:"canonical", fr:[750,1050],  states:["s3a","s3b"] },
+    { id:"m4", name:"Boil Water",        kind:"physics",   fr:[1050,6000], states:["s4a","s4b","s4c"] },
+    { id:"m5", name:"Add Tea Leaves",    kind:"canonical", fr:[6000,6450], states:["s5a","s5b"] },
+    { id:"m6", name:"Infuse",            kind:"physics",   fr:[6450,8850], states:["s6a","s6b"] },
+    { id:"m7", name:"Serve Tea",         kind:"canonical", fr:[8850,9600], states:["s7a","s7b"] }
+  ],
+  spine: [
+    { from:"m1", to:"m2" }, { from:"m2", to:"m3" }, { from:"m3", to:"m4" },
+    { from:"m4", to:"m5" }, { from:"m5", to:"m6" }, { from:"m6", to:"m7" }
+  ],
+
+  states: {
+    /* M1 Take Pan */
+    s1a: { name:"Pan In Rack", ms:"m1", fr:[0,180],
+      world:{ pg:["pan resting in rack","handle oriented outward"], rg:["pan @ (−0.20, 0.34, 0.10) ego"], dr:"frames 0–180" },
+      objects:[ {ref:"obj_pan", pose:"in rack", attrs:"empty, cool", contacts:"rack", role:"target"} ],
+      ag:{ actions:[
+            {id:"a1", verb:"Locate pan", actor:"gaze", target:"obj_pan", role:"enabler", params:[], motion:"—"},
+            {id:"a2", verb:"Grasp handle", actor:"hand.right", target:"obj_pan", role:"driver",
+             params:[{n:"grip",v:"power",u:""},{n:"approach",v:"handle",u:""}], motion:"mot/grasp_handle_01"} ],
+          deps:[{from:"a1",to:"a2",via:["pan located"]}], coord:[] },
+      obs:["c_pan_in_hand"],
+      exits:[ {expr:[["c_pan_in_hand"]], target:"s1b", kind:"canonical"} ], stats:"1/1", conf:0.95 },
+    s1b: { name:"Pan In Hand", ms:"m1", fr:[180,300], terminal:true,
+      world:{ pg:["pan held-by right hand","clear of rack"], rg:["pan @ hand.right frame"], dr:"frames 180–300" },
+      objects:[ {ref:"obj_pan", pose:"in hand", attrs:"empty", contacts:"hand.right", role:"work-piece"} ],
+      ag:{ actions:[ {id:"a1", verb:"Lift clear", actor:"hand.right", target:"obj_pan", role:"driver",
+             params:[{n:"height",v:"~15",u:"cm"}], motion:"mot/lift_01"} ], deps:[], coord:[] },
+      obs:["c_pan_in_hand"],
+      exits:[ {expr:[["milestone complete"]], target:"m2", kind:"canonical", portal:true} ], stats:"—", conf:0.94 },
+
+    /* M2 Pour Water */
+    s2a: { name:"Pan Empty", ms:"m2", fr:[300,620],
+      world:{ pg:["pan under tap / jug","water source open"], rg:["pan @ sink frame"], dr:"frames 300–620" },
+      objects:[ {ref:"obj_pan", pose:"under source", attrs:"filling", contacts:"hand.right", role:"work-piece"},
+                {ref:"obj_water", pose:"stream", attrs:"—", contacts:"pan", role:"substance"} ],
+      ag:{ actions:[ {id:"a1", verb:"Pour water into pan", actor:"hand.left", target:"obj_water", role:"driver",
+             params:[{n:"volume",v:"250",u:"ml",tol:"±30 ml"},{n:"pour speed",v:"slow",u:""},{n:"source",v:"measuring cup",u:""}],
+             motion:"mot/pour_01"} ], deps:[], coord:[] },
+      obs:["c_water_250"],
+      exits:[ {expr:[["c_water_250"]], target:"s2b", kind:"canonical"} ], stats:"1/1", conf:0.82 },
+    s2b: { name:"Pan Filled", ms:"m2", fr:[620,750], terminal:true,
+      world:{ pg:["≈250 ml water inside pan"], rg:["water surface @ ~2 cm depth"], dr:"frames 620–750" },
+      objects:[ {ref:"obj_pan", pose:"in hand", attrs:"~250 ml water", contacts:"hand.right", role:"work-piece"} ],
+      ag:null, obs:["c_water_250"],
+      exits:[ {expr:[["milestone complete"]], target:"m3", kind:"canonical", portal:true} ], stats:"—", conf:0.88 },
+
+    /* M3 Place on Stove */
+    s3a: { name:"Burner Clear", ms:"m3", fr:[750,960],
+      world:{ pg:["pan carried toward stove","burner unobstructed"], rg:["pan approaching burner"], dr:"frames 750–960" },
+      objects:[ {ref:"obj_pan", pose:"carried", attrs:"~250 ml water", contacts:"hand.right", role:"work-piece"},
+                {ref:"obj_burner", pose:"fixed", attrs:"cold", contacts:"stove", role:"target"} ],
+      ag:{ actions:[
+            {id:"a1", verb:"Carry pan to stove", actor:"hand.right", target:"obj_pan", role:"enabler",
+             params:[{n:"path",v:"over-counter",u:""}], motion:"mot/carry_01"},
+            {id:"a2", verb:"Place pan on burner", actor:"hand.right", target:"obj_burner", role:"driver",
+             params:[{n:"centering",v:"centered",u:"",tol:"±1 cm"}], motion:"mot/place_01"} ],
+          deps:[{from:"a1",to:"a2",via:["pan over burner"]}], coord:[] },
+      obs:["c_pan_on_burner"],
+      exits:[ {expr:[["c_pan_on_burner"]], target:"s3b", kind:"canonical"} ], stats:"1/1", conf:0.9 },
+    s3b: { name:"Pan On Burner", ms:"m3", fr:[960,1050], terminal:true,
+      world:{ pg:["pan seated on burner","stove still OFF"], rg:["pan @ burner center"], dr:"frames 960–1050" },
+      objects:[ {ref:"obj_pan", pose:"on burner", attrs:"~250 ml water", contacts:"burner", role:"work-piece"} ],
+      ag:null, obs:["c_pan_on_burner"],
+      exits:[ {expr:[["milestone complete"]], target:"m4", kind:"canonical", portal:true} ], stats:"—", conf:0.93 },
+
+    /* M4 Boil Water — the showcase milestone */
+    s4a: { name:"Water Cold", ms:"m4", fr:[1050,1350], showcase:true,
+      world:{ pg:["water inside pan","pan on burner","stove OFF","pan touching burner"],
+              rg:["knob @ (0.30, 0.12, 0) ego","lighter staged @ hand.left"], dr:"frames 1050–1350" },
+      objects:[ {ref:"obj_pan", pose:"on burner", attrs:"water cold", contacts:"burner", role:"work-piece"},
+                {ref:"obj_knob", pose:"OFF", attrs:"closed", contacts:"stove", role:"control"},
+                {ref:"obj_lighter", pose:"in left hand", attrs:"primed", contacts:"hand.left", role:"tool"},
+                {ref:"obj_burner", pose:"fixed", attrs:"cold", contacts:"pan", role:"target"} ],
+      ag:{ actions:[
+            {id:"a1", verb:"Rotate gas knob", actor:"hand.right", target:"obj_knob", role:"enabler",
+             params:[{n:"target state",v:"Simmer→High",u:""},{n:"direction",v:"clockwise",u:""},{n:"angle",v:"~35",u:"°",tol:"±10°"}],
+             motion:"mot/rotate_knob_01"},
+            {id:"a2", verb:"Pick up lighter", actor:"hand.left", target:"obj_lighter", role:"enabler",
+             params:[], motion:"mot/pick_lighter_01"},
+            {id:"a3", verb:"Hold lighter near burner", actor:"hand.left", target:"obj_burner", role:"enabler",
+             params:[{n:"distance",v:"~1",u:"cm"},{n:"aim",v:"burner port",u:""}], motion:"mot/position_lighter_01"},
+            {id:"a4", verb:"Click lighter", actor:"hand.left", target:"obj_lighter", role:"driver",
+             params:[{n:"presses",v:"1–3",u:""}], motion:"mot/click_lighter_01"} ],
+          deps:[ {from:"a2",to:"a3",via:["c_lighter_ready"]},
+                 {from:"a1",to:"a4",via:["c_gas_flowing"]},
+                 {from:"a3",to:"a4",via:["lighter positioned"]} ],
+          coord:["a1 (Rotate knob) and a2 (Pick lighter) are independent → performed concurrently, one per hand",
+                 "Click must fire WHILE gas is flowing — do not rotate knob back before flame catches"],
+          note:"Two demonstrations, Rotate→Pick→Click and Pick→Rotate→Click, compile to THIS SAME group: the graph stores dependencies, not the observed order." },
+      obs:["c_gas_flowing","c_flame_exists"],
+      exits:[ {expr:[["c_gas_flowing"],["AND"],["c_flame_exists"]], target:"s4b", kind:"canonical"} ],
+      stats:"1/1", conf:0.86 },
+    s4b: { name:"Water Heating", ms:"m4", fr:[1350,5700], physics:true,
+      world:{ pg:["flame ON under pan","water heating","pan touching burner"], rg:["pan @ burner center"], dr:"frames 1350–5700" },
+      objects:[ {ref:"obj_pan", pose:"on burner", attrs:"heating", contacts:"burner", role:"work-piece"},
+                {ref:"obj_water", pose:"in pan", attrs:"temp rising", contacts:"pan", role:"substance"} ],
+      ag:null,
+      obs:["c_temp_rising","c_steam","c_small_bubbles","c_elapsed_boil"],
+      exits:[ {expr:[["c_rolling_boil"]], target:"s4c", kind:"canonical", note:"physics-driven — no action; the compiler only monitors observables"} ],
+      stats:"≈145 s", conf:0.72 },
+    s4c: { name:"Water Boiling", ms:"m4", fr:[5700,6000], terminal:true,
+      world:{ pg:["water at rolling boil","flame ON"], rg:["—"], dr:"frames 5700–6000" },
+      objects:[ {ref:"obj_water", pose:"in pan", attrs:"rolling boil ~100 °C", contacts:"pan", role:"substance"} ],
+      ag:null, obs:["c_rolling_boil","c_boil_stable","c_steam"],
+      exits:[ {expr:[["milestone complete"]], target:"m5", kind:"canonical", portal:true} ], stats:"—", conf:0.75 },
+
+    /* M5 Add Tea Leaves */
+    s5a: { name:"Leaves Ready", ms:"m5", fr:[6000,6300],
+      world:{ pg:["spoon scooping leaves","pan boiling below"], rg:["spoon @ over pan"], dr:"frames 6000–6300" },
+      objects:[ {ref:"obj_leaves", pose:"on spoon", attrs:"measured", contacts:"spoon", role:"consumable"},
+                {ref:"obj_spoon", pose:"in hand", attrs:"—", contacts:"hand.right", role:"tool"} ],
+      ag:{ actions:[
+            {id:"a1", verb:"Measure leaves", actor:"hand.right", target:"obj_leaves", role:"enabler",
+             params:[{n:"amount",v:"2",u:"tsp",tol:"±0.5 tsp"},{n:"per",v:"per cup",u:""}], motion:"mot/scoop_01"},
+            {id:"a2", verb:"Add leaves to water", actor:"hand.right", target:"obj_water", role:"driver",
+             params:[{n:"technique",v:"sprinkle",u:""}], motion:"mot/add_leaves_01"} ],
+          deps:[{from:"a1",to:"a2",via:["leaves measured"]}], coord:[] },
+      obs:["c_leaves_added"],
+      exits:[ {expr:[["c_leaves_added"]], target:"s5b", kind:"canonical"} ], stats:"1/1", conf:0.85 },
+    s5b: { name:"Leaves In Water", ms:"m5", fr:[6300,6450], terminal:true,
+      world:{ pg:["leaves suspended in boiling water"], rg:["—"], dr:"frames 6300–6450" },
+      objects:[ {ref:"obj_water", pose:"in pan", attrs:"leaves added, boiling", contacts:"pan", role:"substance"} ],
+      ag:null, obs:["c_leaves_added"],
+      exits:[ {expr:[["milestone complete"]], target:"m6", kind:"canonical", portal:true} ], stats:"—", conf:0.9 },
+
+    /* M6 Infuse — physics + a loop */
+    s6a: { name:"Infusing", ms:"m6", fr:[6450,8700], physics:true,
+      world:{ pg:["reduced flame or off","leaves steeping","colour darkening"], rg:["—"], dr:"frames 6450–8700" },
+      objects:[ {ref:"obj_water", pose:"in pan", attrs:"steeping, darkening", contacts:"pan", role:"substance"},
+                {ref:"obj_leaves", pose:"submerged", attrs:"releasing colour", contacts:"water", role:"consumable"} ],
+      ag:null,
+      obs:["c_color_dev","c_color_dark","c_elapsed_inf"],
+      exits:[ {expr:[["c_color_dark"],["AND"],["c_elapsed_inf"]], target:"s6b", kind:"canonical"},
+              {expr:[["c_elapsed_inf"],["AND NOT"],["c_color_dark"]], target:"s6a", kind:"loop", note:"steep longer — revisit the same state (a loop, not a special construct)"} ],
+      stats:"loop 0–1×", conf:0.7 },
+    s6b: { name:"Infused", ms:"m6", fr:[8700,8850], terminal:true,
+      world:{ pg:["liquor amber-brown","aroma developed"], rg:["—"], dr:"frames 8700–8850" },
+      objects:[ {ref:"obj_water", pose:"in pan", attrs:"brewed tea", contacts:"pan", role:"substance"} ],
+      ag:null, obs:["c_color_dark"],
+      exits:[ {expr:[["milestone complete"]], target:"m7", kind:"canonical", portal:true} ], stats:"—", conf:0.82 },
+
+    /* M7 Serve */
+    s7a: { name:"Pour Into Cup", ms:"m7", fr:[8850,9450],
+      world:{ pg:["pan lifted","strainer over cup","tea pouring"], rg:["cup @ counter","strainer @ cup rim"], dr:"frames 8850–9450" },
+      objects:[ {ref:"obj_pan", pose:"tilted", attrs:"brewed tea", contacts:"hand.right", role:"work-piece"},
+                {ref:"obj_strainer", pose:"over cup", attrs:"catching leaves", contacts:"cup", role:"tool"},
+                {ref:"obj_cup", pose:"on counter", attrs:"filling", contacts:"counter", role:"target"} ],
+      ag:{ actions:[
+            {id:"a1", verb:"Position strainer over cup", actor:"hand.left", target:"obj_strainer", role:"enabler",
+             params:[{n:"placement",v:"on cup rim",u:""}], motion:"mot/place_strainer_01"},
+            {id:"a2", verb:"Lift and tilt pan", actor:"hand.right", target:"obj_pan", role:"enabler",
+             params:[{n:"tilt",v:"~60",u:"°"}], motion:"mot/tilt_pan_01"},
+            {id:"a3", verb:"Pour tea through strainer", actor:"hand.right", target:"obj_water", role:"driver",
+             params:[{n:"volume",v:"200",u:"ml"},{n:"pour speed",v:"steady",u:""}], motion:"mot/pour_tea_01"} ],
+          deps:[ {from:"a1",to:"a3",via:["strainer placed"]}, {from:"a2",to:"a3",via:["pan tilted"]} ],
+          coord:["Hold strainer steady (a1) WHILE pouring (a3)"] },
+      obs:["c_cup_filled","c_pan_empty"],
+      exits:[ {expr:[["c_cup_filled"]], target:"s7b", kind:"canonical"} ], stats:"1/1", conf:0.83 },
+    s7b: { name:"Tea Served", ms:"m7", fr:[9450,9600], terminal:true,
+      world:{ pg:["cup full of strained tea","pan empty","leaves in strainer"], rg:["cup @ counter"], dr:"frames 9450–9600" },
+      objects:[ {ref:"obj_cup", pose:"on counter", attrs:"~200 ml tea", contacts:"counter", role:"result"} ],
+      ag:null, obs:["c_cup_filled"], exits:[], stats:"task success 1/1", conf:0.9 }
+  }
+};
+
+/* ================================================================ */
+const $ = s => document.querySelector(s);
+let cy = null;
+let sel = null;                                        // { type, id }
+let expanded = { ms:new Set(), st:new Set(), ag:new Set(), act:new Set() };
+
+const GLOSSARY = {
+  state:"A Procedural State — a stable phase of execution spanning a time segment. It owns four SIBLING parts (not nested): World Representation, Action Group, Observable Conditions, Exit Criteria. Think of a state as a small computation from one world configuration to the next.",
+  world:"World Representation — what the world looks like during this phase, in three purpose-based geometry layers plus the object instances. Egocentric (relative to the doer's viewpoint).",
+  ag:"Action Group — the intentional operations of this state as a partial-order dependency DAG. Optional: physics-driven states own none. This compartment expands in place to show the DAG.",
+  obs:"Observable Conditions — symbolic, verifiable evidence that the world changed. Not steps: the engine acts, then watches whether these become true.",
+  exit:"Exit Criteria — boolean expressions over Observable Conditions, each mapped to a next state. This is the whole transition system; loops and recovery are just edges here.",
+  action:"An Action — a parameterized intentional operation. Verb + Actor + Target say WHAT; Parameters say the intended operating point; Motion Reference says how the body moved; dependencies say what must be true first.",
+  params:"Parameters — the intended operating point of the action (Angle=35°, Temperature=350°C, Volume=250 ml). This is intention/command, distinct from Motion Reference (recorded body motion) and from Observable Conditions (verified world outcome). Over many demos, the PMG can learn canonical values, ranges and context.",
+  motion:"Motion Reference — a pointer to the recorded body motion. HOW the body moved, versus Parameters which say WHAT outcome was intended. Motion generation stays an external execution contract.",
+  dep:"Dependency edges, NOT temporal edges: an action cannot begin until the conditions produced by its parents hold. Independent actions run concurrently or in any order — so different demonstrated orders compile to the SAME group.",
+  coord:"Coordination constraints — genuinely simultaneous cooperation (maintain-A-while-B). Where timing synchronization between parallel actions lives.",
+  predicate:"A (subject · relation · object/value) triple. Target may be another object (pan on burner) or a literal value (temp ≈ 100 °C).",
+  qualifier:"Temporal qualifier — instant, sustained ≥ t, or within t. Also how 'hold for 2 s' is expressed: time is just another observable.",
+  contract:"Execution Contract — HOW a condition is verified (method, tolerance, confidence) lives OUTSIDE the graph, keyed by condition id, so the memory stays perception-agnostic.",
+  frameRange:"Canonical temporal reference — the demonstration interval this state summarizes. Duration and timestamps are derived from it.",
+  registry:"Task-level Object Registry — one entry per physical object; identity is global, state is local."
+};
+function tip(k){ const g=GLOSSARY[k]; return g?g.replace(/"/g,"&quot;"):""; }
+function info(k){ return GLOSSARY[k]?`<span class="info" data-tip="${tip(k)}">i</span>`:""; }
+function ttip(label,k){ return GLOSSARY[k]?`<b data-tip="${tip(k)}">${label}</b>`:`<b>${label}</b>`; }
+
+function fmtT(fr){ const s=Math.round(fr/FPS); return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`; }
+function frLabel(fr){ return `frames ${fr[0]}–${fr[1]}  (${fmtT(fr[0])}–${fmtT(fr[1])})`; }
+function msById(id){ return PMG_DATA.milestones.find(m=>m.id===id); }
+function condText(id){ const c=PMG_DATA.conditions[id]; return c?c.d:id.replace(/^c_/,"").replace(/_/g," "); }
+function exprHTML(expr){ return expr.map(p=>Array.isArray(p)?p.map(q=>PMG_DATA.conditions[q]?`<span title="${condText(q)}">${q}</span>`:`<span class="op">${q}</span>`).join(" "):p).join(" "); }
+function exprText(expr){ return expr.map(p=>Array.isArray(p)?p.map(q=>PMG_DATA.conditions[q]?condText(q):q).join(" "):p).join(" "); }
+
+if (typeof cytoscape === "undefined") { $("#main").style.display="none"; $("#cdnerr").style.display="block"; }
+else boot();
+
+function baseStyle(){ return [
+  { selector:"node", style:{ "background-color":"#ffffff","border-width":1.5,"border-color":"#c4cede","label":"data(label)",
+      "color":"#1c2530","font-size":"11px","text-wrap":"wrap","text-max-width":"130px","text-valign":"center","text-halign":"center",
+      "shape":"round-rectangle","width":"data(w)","height":"data(h)" } },
+  { selector:"node.milestone", style:{ "width":"168px","height":"64px","font-size":"11.5px" } },
+  { selector:"node.state", style:{ "width":"156px","height":"60px" } },
+  { selector:"node.physics", style:{ "background-color":"#e9f7f2","border-style":"dashed","border-color":"#0f8a6c" } },
+  { selector:"node.showcase", style:{ "border-color":"#2f6fe0","border-width":2.5 } },
+  { selector:"node.terminal", style:{ "border-width":2.5 } },
+  { selector:"node.ms-open", style:{ "background-color":"#eef3fb","background-opacity":0.75,"border-color":"#c4cede",
+      "shape":"round-rectangle","text-valign":"top","text-halign":"center","font-size":"11px","color":"#5b6b82","padding":"26px","text-margin-y":-6,"text-max-width":"900px" } },
+  { selector:"node.ms-open.physics-ms", style:{ "border-color":"#0f8a6c" } },
+  { selector:"node.st-open", style:{ "background-color":"#e9f1fc","background-opacity":0.9,"border-color":"#2f6fe0","border-width":1.5,
+      "shape":"round-rectangle","text-valign":"top","text-halign":"center","font-size":"10.5px","color":"#33506f","padding":"20px","text-margin-y":-5,"text-max-width":"520px" } },
+  { selector:"node.compartment", style:{ "background-color":"#eaf5ef","background-opacity":0.95,"border-color":"#9cc7b6","border-width":1.2,
+      "shape":"round-rectangle","font-size":"10.5px","color":"#17493a","text-valign":"center","text-max-width":"230px" } },
+  { selector:"node.c-ag", style:{ "background-color":"#eef1fb","border-color":"#b9c4de","color":"#2b3c63" } },
+  { selector:"node.c-world", style:{ "background-color":"#eaf4f8","border-color":"#a6cad9","color":"#1d4b5e" } },
+  { selector:"node.c-exit", style:{ "background-color":"#f4edfb","border-color":"#c3aee0","color":"#4a2f6f" } },
+  { selector:"node.ag-open", style:{ "background-color":"#f2f5fb","background-opacity":0.95,"border-color":"#c4cede","border-width":1.2,
+      "text-valign":"top","text-halign":"center","font-size":"9.5px","color":"#47597a","padding":"18px","text-margin-y":-4,"text-max-width":"600px" } },
+  { selector:"node.action", style:{ "background-color":"#eaf0fb","border-color":"#b9c4de","border-width":1,"font-size":"9.5px","text-max-width":"122px" } },
+  { selector:"node.action.hasparam", style:{ "border-color":"#a07bc9" } },
+  { selector:"node.action-open", style:{ "background-color":"#f3eefb","background-opacity":0.97,"border-color":"#a07bc9","border-width":1.3,
+      "shape":"round-rectangle","text-valign":"top","text-halign":"center","font-size":"9px","color":"#3a2a56","padding":"9px","text-margin-y":-3,"text-max-width":"180px" } },
+  { selector:"node.chip", style:{ "background-color":"#ffffff","border-width":1,"border-color":"#cdd6e4","font-size":"8.5px","text-max-width":"162px","text-wrap":"wrap","color":"#33445e","shape":"round-rectangle","text-valign":"center","text-halign":"center" } },
+  { selector:"node.chip-param", style:{ "background-color":"#f6eefc","border-color":"#b98fd8","color":"#5a2f8f" } },
+  { selector:"node.chip-intent", style:{ "background-color":"#eaf6f0","border-color":"#8fc3ad","color":"#1d5b45" } },
+  { selector:"node:selected", style:{ "border-color":"#12305e","border-width":3 } },
+  { selector:"node.obj-hit", style:{ "background-color":"#e4f5ec","border-color":"#0f8a6c","border-width":2.5 } },
+  { selector:"edge", style:{ "curve-style":"bezier","target-arrow-shape":"triangle","arrow-scale":1.05,"width":2,
+      "line-color":"#2f6fe0","target-arrow-color":"#2f6fe0","label":"data(label)","font-size":"9px","color":"#5b6b82",
+      "text-wrap":"wrap","text-max-width":"150px","text-background-color":"#ffffff","text-background-opacity":0.9,"text-background-padding":"2px" } },
+  { selector:"edge.loop", style:{ "line-color":"#d0472c","target-arrow-color":"#d0472c" } },
+  { selector:"edge.selfloop", style:{ "curve-style":"loop","loop-direction":"0deg","loop-sweep":"-45deg","line-color":"#d0472c","target-arrow-color":"#d0472c" } },
+  { selector:"edge.intended", style:{ "line-color":"#8fa3b8","target-arrow-color":"#8fa3b8","line-style":"dashed" } },
+  { selector:"edge.dep", style:{ "line-color":"#b9770f","target-arrow-color":"#b9770f","width":1.6,"font-size":"8.5px","text-max-width":"120px" } },
+  { selector:"edge.flow", style:{ "line-color":"#0f8a6c","target-arrow-color":"#0f8a6c","line-style":"dotted","width":1.4,"arrow-scale":.8,"opacity":.75 } }
+]; }
+
+function boot(){
+  cy = cytoscape({ container:$("#cy"), style:baseStyle(), wheelSensitivity:0.25 });
+  cy.on("tap","node", evt => onTap(evt.target));
+  cy.on("tap", evt => { if (evt.target===cy) closeDock(); });
+  $("#btnLegend").onclick = () => $("#legend").classList.toggle("open");
+  $("#btnRegistry").onclick = () => $("#registry").classList.toggle("open");
+  $("#btnCollapse").onclick = collapseAll;
+  $("#dockClose").onclick = closeDock;
+  renderRegistry();
+  setTitle("Task — one graph, expanding hierarchy", PMG_DATA.task.name);
+  setCrumbs([{label:PMG_DATA.task.name, current:true}]);
+  renderGraph();
+}
+
+function onTap(n){
+  const id = n.id();
+  if (n.hasClass("milestone")) { expanded.ms.add(id); renderGraph(id); }
+  else if (n.hasClass("ms-open")) { collapseMilestone(id); }
+  else if (n.hasClass("state")) { const s=PMG_DATA.states[id]; expanded.st.add(id); if(s.ag)expanded.ag.add(id); renderGraph(id); dockState(id); }
+  else if (n.hasClass("st-open")) { const sid=id; expanded.st.delete(sid); expanded.ag.delete(sid); clearAct(sid+"__"); renderGraph(sid); dockState(sid); }
+  else if (n.hasClass("c-world")) { dockWorld(sid_of(id)); select(id); }
+  else if (n.hasClass("ag-open")) { const sid=sid_of(id); expanded.ag.delete(sid); clearAct(sid+"__"); renderGraph(sid+"__ag_c"); dockAG(sid); }
+  else if (n.hasClass("c-ag")) { const sid=sid_of(id); if(PMG_DATA.states[sid].ag){ expanded.ag.add(sid); renderGraph(sid); } dockAG(sid); }
+  else if (n.hasClass("c-obs")) { dockObs(sid_of(id)); select(id); }
+  else if (n.hasClass("c-exit")) { dockExit(sid_of(id)); select(id); }
+  else if (n.hasClass("chip")) { const p=id.split("__"); dockAction(p[0],p[1]); select(id); }
+  else if (n.hasClass("action-open")) { const [sid,aid]=id.split("__"); expanded.act.delete(id); renderGraph(id); dockAction(sid,aid); }
+  else if (n.hasClass("action")) { const [sid,aid]=id.split("__"); expanded.act.add(id); renderGraph(id); dockAction(sid,aid); }
+}
+function clearAct(prefix){ [...expanded.act].forEach(x=>{ if(x.startsWith(prefix)) expanded.act.delete(x); }); }
+function sid_of(compId){ return compId.split("__")[0]; }
+function select(id){ cy.nodes().unselect(); const n=cy.getElementById(id); if(n.length)n.select(); }
+
+/* ---------- unified expanding graph ---------- */
+function actionRanks(ag){
+  const r={}; ag.actions.forEach(a=>r[a.id]=0);
+  let ch=true,g=0; while(ch&&g++<60){ ch=false; ag.deps.forEach(d=>{ if(r[d.to]<r[d.from]+1){r[d.to]=r[d.from]+1;ch=true;} }); }
+  return r;
+}
+const COMPW=230, COMPH=46, GAPV=13, AGPAD=34;
+const CHIPW=176, CHIPH=24, CHIPGAP=5, ACT_PAD=12, ACT_HEAD=20, COLGAP=52, ROWGAP=28, ACT_CLOSED_W=138, ACT_CLOSED_H=50;
+
+/* Action becomes a rich object: its Intent / Parameters / Motion / Role render as a chip sub-layer in the graph. */
+function actionChips(a){
+  const chips=[{k:"intent", t:`▸ intent: ${a.verb} → ${a.target}`}];
+  if (a.params && a.params.length) a.params.forEach(p=>chips.push({k:"param", t:`${p.n} = ${p.v}${p.u?(" "+p.u):""}${p.tol?("  ["+p.tol+"]"):""}`}));
+  else chips.push({k:"meta", t:"parameters: none"});
+  chips.push({k:"meta", t:`motion: ${a.motion||"—"}`});
+  chips.push({k:"meta", t:`role: ${a.role}`});
+  return chips;
+}
+function actionSize(a,open){ if(!open) return {w:ACT_CLOSED_W,h:ACT_CLOSED_H};
+  const n=actionChips(a).length; return { w:CHIPW+2*ACT_PAD, h:ACT_HEAD+n*CHIPH+(n-1)*CHIPGAP+2*ACT_PAD }; }
+function computeAGGeom(sid){
+  const ag=PMG_DATA.states[sid].ag, rank=actionRanks(ag), nCols=Math.max(...Object.values(rank))+1;
+  const cols={}; ag.actions.forEach(a=>{(cols[rank[a.id]]=cols[rank[a.id]]||[]).push(a);});
+  const colW=[],colH=[];
+  for(let c=0;c<nCols;c++){ const list=cols[c]||[]; let w=ACT_CLOSED_W,h=0;
+    list.forEach(a=>{ const sz=actionSize(a,expanded.act.has(sid+"__"+a.id)); w=Math.max(w,sz.w); h+=sz.h; });
+    h+=Math.max(0,list.length-1)*ROWGAP; colW[c]=w; colH[c]=h; }
+  const colX=[]; let acc=0; for(let c=0;c<nCols;c++){ colX[c]=acc; acc+=colW[c]+COLGAP; }
+  const totalW=acc-COLGAP, totalH=Math.max(...colH), act={};
+  for(let c=0;c<nCols;c++){ const list=cols[c]||[]; let yacc=-colH[c]/2;
+    list.forEach(a=>{ const open=expanded.act.has(sid+"__"+a.id), sz=actionSize(a,open);
+      act[a.id]={ x:(colX[c]+colW[c]/2)-totalW/2, y:yacc+sz.h/2, w:sz.w, h:sz.h, open }; yacc+=sz.h+ROWGAP; }); }
+  return { w:totalW, h:totalH+AGPAD, act };
+}
+
+function renderGraph(focusId){
+  const els=[], pos={}; let X=0;
+  const MSW=168, MSGAP=64, STW=156, STGAP=58;
+
+  PMG_DATA.milestones.forEach(m => {
+    const physCls = m.kind==="physics" ? " physics-ms" : "";
+    if (!expanded.ms.has(m.id)) {
+      els.push({ data:{ id:m.id, w:MSW, h:64, label:`${m.name}\n${m.states.length} states · ${fmtT(m.fr[0])}–${fmtT(m.fr[1])} ⊕` }, classes:"milestone" });
+      pos[m.id]={x:X+MSW/2,y:0}; X+=MSW+MSGAP;
+    } else {
+      els.push({ data:{ id:m.id, label:`▣ MILESTONE · ${m.name} · ${fmtT(m.fr[0])}–${fmtT(m.fr[1])}   (click title to collapse ⊖)` }, classes:"ms-open"+physCls });
+      X += 34;
+      m.states.forEach(sid => { X = layoutState(els,pos,sid,m.id,X,STW,STGAP); });
+      X += 34 + MSGAP;
+    }
+  });
+
+  /* spine edges from collapsed milestones */
+  PMG_DATA.spine.forEach((e,i)=>{ if(expanded.ms.has(e.from)) return;
+    els.push({ data:{ id:"sp"+i, source:e.from, target:e.to, label:"" }, classes:"canonical" }); });
+  /* exit edges for expanded milestones (from exit compartment if state expanded, else from state) */
+  let ei=0;
+  PMG_DATA.milestones.forEach(m=>{ if(!expanded.ms.has(m.id)) return;
+    m.states.forEach(sid=>{
+      const src = expanded.st.has(sid) ? sid+"__exit" : sid;
+      PMG_DATA.states[sid].exits.forEach(x=>{
+        const cls = (x.kind==="loop")?("loop"+(x.target===sid?" selfloop":"")):(x.kind||"canonical");
+        els.push({ data:{ id:"xe"+(ei++), source:src, target:x.target, label:(x.note||exprText(x.expr)) }, classes:cls });
+      });
+    });
+  });
+
+  cy.elements().remove();
+  cy.add(els);
+  cy.layout({ name:"preset", positions:n=>pos[n.id()]||{x:0,y:0}, fit:false }).run();
+  requestAnimationFrame(()=>{ cy.resize(); const f=focusId&&cy.getElementById(focusId); if(f&&f.length)cy.fit(f,110); else fitView(); });
+  if (sel && cy.getElementById(sel.id).length) cy.getElementById(sel.id).select();
+  renderTimeline();
+}
+
+function layoutState(els,pos,sid,parentMs,X,STW,STGAP){
+  const s = PMG_DATA.states[sid];
+  if (!expanded.st.has(sid)) {
+    const nAct = s.ag?s.ag.actions.length:0;
+    const badge = s.ag?`${nAct} action${nAct>1?"s":""} ⊕`:"∅ physics/observe";
+    els.push({ data:{ id:sid, parent:parentMs, w:STW, h:60, label:`${s.name}\n${badge}` },
+               classes:"state "+(s.physics?"physics ":"")+(s.terminal?"terminal ":"")+(s.showcase?"showcase":"") });
+    pos[sid]={x:X+STW/2,y:0}; return X+STW+STGAP;
+  }
+  const agOpen = expanded.ag.has(sid) && s.ag;
+  let agW=COMPW, agH=COMPH, agGeom=null;
+  if (agOpen) { agGeom=computeAGGeom(sid); agW=Math.max(COMPW, agGeom.w); agH=agGeom.h; }
+  const stateW=Math.max(COMPW, agW)+30;
+  const centerX=X+stateW/2;
+  const heights=[COMPH, agH, COMPH, COMPH];
+  const totalH=heights.reduce((a,b)=>a+b,0)+3*GAPV;
+  let y=-totalH/2;
+  const cyWorld=y+COMPH/2; y+=COMPH+GAPV;
+  const cyAG=y+agH/2;      y+=agH+GAPV;
+  const cyObs=y+COMPH/2;   y+=COMPH+GAPV;
+  const cyExit=y+COMPH/2;
+
+  els.push({ data:{ id:sid, parent:parentMs, label:`▸ STATE · ${s.name}   ·   world → actions → observables → exit   (click title to collapse ⊖)` },
+             classes:"st-open"+(s.showcase?" showcase":"") });
+
+  els.push({ data:{ id:sid+"__world", parent:sid, w:COMPW, h:COMPH, label:`🌐 World Representation\n${s.objects.length} objects · 3 geometry layers` }, classes:"compartment c-world" });
+  pos[sid+"__world"]={x:centerX,y:cyWorld};
+
+  if (!agOpen) {
+    const lbl = s.ag ? `⚙ Action Group\n${s.ag.actions.length} action${s.ag.actions.length>1?"s":""} · dependency DAG ⊕` : `⚙ Action Group\n∅ none — physics-driven`;
+    els.push({ data:{ id:sid+"__ag_c", parent:sid, w:COMPW, h:COMPH, label:lbl }, classes:"compartment c-ag" });
+    pos[sid+"__ag_c"]={x:centerX,y:cyAG};
+  } else {
+    els.push({ data:{ id:sid+"__ag", parent:sid, label:`⚙ ACTION GROUP · dependency DAG  ·  click an action to open its parameters  (title to collapse ⊖)` }, classes:"ag-open" });
+    s.ag.actions.forEach(a=>{
+      const g=agGeom.act[a.id], aid=sid+"__"+a.id, ax=centerX+g.x, ay=cyAG+g.y;
+      if (!g.open) {
+        els.push({ data:{ id:aid, parent:sid+"__ag", w:g.w, h:g.h, label:`${a.verb}\n${a.actor}${a.params&&a.params.length?"  ⚙"+a.params.length:""}  ⊕` }, classes:"action"+(a.params&&a.params.length?" hasparam":"") });
+        pos[aid]={x:ax,y:ay};
+      } else {
+        els.push({ data:{ id:aid, parent:sid+"__ag", label:`${a.verb} · ${a.actor}  (click to collapse ⊖)` }, classes:"action-open"+(a.params&&a.params.length?" hasparam":"") });
+        const chips=actionChips(a), chipTop=ay-g.h/2+ACT_PAD+ACT_HEAD;
+        chips.forEach((ch,ci)=>{ const cid=aid+"__c"+ci;
+          els.push({ data:{ id:cid, parent:aid, w:CHIPW, h:CHIPH, label:ch.t }, classes:"chip chip-"+ch.k });
+          pos[cid]={ x:ax, y:chipTop+ci*(CHIPH+CHIPGAP)+CHIPH/2 };
+        });
+      }
+    });
+    s.ag.deps.forEach((d,i)=>{ els.push({ data:{ id:sid+"__d"+i, source:sid+"__"+d.from, target:sid+"__"+d.to,
+                        label:"requires: "+d.via.map(v=>PMG_DATA.conditions[v]?condText(v):v).join(" + ") }, classes:"dep" }); });
+  }
+
+  els.push({ data:{ id:sid+"__obs", parent:sid, w:COMPW, h:COMPH, label:`👁 Observable Conditions\n${s.obs.length} symbolic condition${s.obs.length>1?"s":""}` }, classes:"compartment c-obs" });
+  pos[sid+"__obs"]={x:centerX,y:cyObs};
+
+  const exitLbl = s.exits.length ? `⇥ Exit Criteria\n${s.exits.length} transition${s.exits.length>1?"s":""}` : `⇥ Exit Criteria\ntask terminal`;
+  els.push({ data:{ id:sid+"__exit", parent:sid, w:COMPW, h:COMPH, label:exitLbl }, classes:"compartment c-exit" });
+  pos[sid+"__exit"]={x:centerX,y:cyExit};
+
+  const agId = agOpen ? sid+"__ag" : sid+"__ag_c";
+  els.push({ data:{ id:sid+"__f1", source:sid+"__world", target:agId }, classes:"flow" });
+  els.push({ data:{ id:sid+"__f2", source:agId, target:sid+"__obs" }, classes:"flow" });
+  els.push({ data:{ id:sid+"__f3", source:sid+"__obs", target:sid+"__exit" }, classes:"flow" });
+
+  return X+stateW+STGAP;
+}
+
+function collapseMilestone(mid){ expanded.ms.delete(mid); msById(mid).states.forEach(s=>{expanded.st.delete(s);expanded.ag.delete(s);clearAct(s+"__");}); closeDock(); renderGraph(mid); }
+function collapseAll(){ expanded.ms.clear(); expanded.st.clear(); expanded.ag.clear(); expanded.act.clear(); closeDock(); renderGraph(); }
+function gotoMilestone(mid){ expanded.ms.add(mid); renderGraph(mid); }
+
+/* ---------- contextual info dock ---------- */
+function openDock(kind,title,html,selType,selId){
+  $("#dockKind").textContent=kind; $("#dockTitle").innerHTML=title; $("#dockBody").innerHTML=html;
+  $("#dock").classList.add("open");
+  sel = selId?{type:selType,id:selId}:null;
+  if (selId){ const n=cy.getElementById(selId); if(n.length){ cy.nodes().unselect(); n.select(); setTimeout(()=>cy.animate({center:{eles:n}},{duration:180}),20);} }
+}
+function closeDock(){ $("#dock").classList.remove("open"); sel=null; if(cy)cy.nodes().unselect(); }
+
+function dockState(sid){
+  const s=PMG_DATA.states[sid], m=msById(s.ms);
+  const badges = `${s.physics?'<span class="badge physics">physics-driven</span>':""}${s.showcase?'<span class="badge">showcase</span>':""}${s.terminal?'<span class="badge">milestone-terminal</span>':""}`;
+  const html = `
+    <div>${badges}</div>
+    <div class="cols">
+      <div class="col">
+        <div class="sec"><h4>Frame Range ${info("frameRange")}</h4><div class="kv mono">${frLabel(s.fr)}</div>
+          <div class="kv" style="color:var(--dim);font-size:11.5px">duration ${Math.round((s.fr[1]-s.fr[0])/FPS)}s — derived, not stored</div></div>
+        <div class="sec"><h4>The state is a small computation ${info("state")}</h4>
+          <ul class="plain">
+            <li>${ttip("World Representation","world")} — the situation it starts in</li>
+            <li>${ttip("Action Group","ag")} — what is done (parameterized, dependency-ordered)</li>
+            <li>${ttip("Observable Conditions","obs")} — evidence the world changed</li>
+            <li>${ttip("Exit Criteria","exit")} — which next state to enter</li>
+          </ul>
+          <div class="kv" style="color:var(--dim);font-size:11.5px">Click a compartment in the graph to inspect just that part.</div></div>
+      </div>
+      <div class="col">
+        <div class="sec"><h4>Statistics &amp; Confidence</h4>
+          <div class="kv"><b>stats</b> ${s.stats}</div>
+          <div class="kv"><b>confidence</b> ${s.conf}</div><div class="confbar"><div style="width:${s.conf*100}%"></div></div></div>
+      </div>
+    </div>`;
+  openDock("Procedural State · "+m.name, `${s.name}`, html, "state", sid+"__world");
+  setCrumbs([ {label:PMG_DATA.task.name, go:collapseAll}, {label:m.name, go:()=>gotoMilestone(m.id)}, {label:s.name, current:true} ]);
+}
+
+function dockWorld(sid){
+  const s=PMG_DATA.states[sid];
+  const objs = s.objects.map(o=>`<tr><td>${o.ref}</td><td><b>pose</b> ${o.pose}<br><b>attrs</b> ${o.attrs} · <b>contacts</b> ${o.contacts}<br><b>role</b> ${o.role}</td></tr>`).join("");
+  const html = `
+    <div class="cols">
+      <div class="col">
+        <div class="sec"><h4>Geometry Layers ${info("world")}</h4>
+          <div class="kv"><b>Procedural Geometry</b> (relations + contacts)</div><ul class="plain">${s.world.pg.map(x=>`<li>${x}</li>`).join("")}</ul>
+          <div class="kv" style="margin-top:6px"><b>Reference Geometry</b> (egocentric poses)</div><ul class="plain">${s.world.rg.map(x=>`<li class="mono">${x}</li>`).join("")}</ul>
+          <div class="kv" style="margin-top:6px"><b>Dense Reconstruction</b> (by reference)</div><div class="kv mono" style="padding-left:14px">demo-store["${PMG_DATA.task.id}"] @ ${s.world.dr}</div></div>
+      </div>
+      <div class="col"><div class="sec"><h4>Object Instances → registry</h4><table class="objs">${objs}</table></div></div>
+    </div>`;
+  openDock("World Representation", PMG_DATA.states[sid].name, html, "world", sid+"__world");
+}
+
+function dockAG(sid){
+  const s=PMG_DATA.states[sid];
+  if (!s.ag){ openDock("Action Group", s.name, `<div class="kv" style="color:var(--physics)">∅ None — the world evolves by physics or observation only. Action Groups are optional; this is a physics-driven state.</div>`, "ag", sid+"__ag_c"); return; }
+  const acts = s.ag.actions.map(a=>`<div class="actline"><span class="rolechip">${a.role}</span><b style="border:none">${a.verb}</b><span style="color:var(--dim)">${a.actor}${a.params&&a.params.length?` · ⚙ ${a.params.length} param${a.params.length>1?"s":""}`:""}</span></div>`).join("");
+  const coord = (s.ag.coord||[]).map(c=>`<div class="coord">${c}</div>`).join("");
+  const html = `
+    <div class="sec"><h4>Dependency DAG ${info("dep")}</h4>
+      <div class="kv" style="color:var(--dim);font-size:11.5px">Expanded in the graph — amber edges are dependencies. Click any action node for its Parameters, Motion Reference and dependencies.</div>
+      ${acts}</div>
+    ${coord?`<div class="sec"><h4>Coordination ${info("coord")}</h4>${coord}</div>`:""}
+    ${s.ag.note?`<div class="note">${s.ag.note}</div>`:""}`;
+  openDock("Action Group · dependency DAG", s.name, html, "ag", expanded.ag.has(sid)?sid+"__ag":sid+"__ag_c");
+}
+
+function dockAction(sid,aid){
+  const s=PMG_DATA.states[sid], a=s.ag.actions.find(x=>x.id===aid);
+  const params = (a.params&&a.params.length)
+    ? `<table class="params"><tr><th>parameter</th><th>value</th><th>tolerance</th></tr>` +
+      a.params.map(p=>`<tr><td class="pname">${p.n}</td><td class="pval">${p.v} <span class="unit">${p.u||""}</span></td><td class="ptol">${p.tol||"—"}</td></tr>`).join("") + `</table>`
+    : `<div class="kv" style="color:var(--dim)">no parameters — the verb fully specifies the intent</div>`;
+  const reqs = s.ag.deps.filter(d=>d.to===aid);
+  const enables = s.ag.deps.filter(d=>d.from===aid);
+  const verbOf = id => (s.ag.actions.find(x=>x.id===id)||{}).verb||id;
+  const depHtml = (reqs.length||enables.length)
+    ? reqs.map(d=>`<div class="kv" style="color:var(--alt)">⇠ cannot begin until <b style="border:none">${verbOf(d.from)}</b> yields: ${d.via.map(v=>PMG_DATA.conditions[v]?condText(v):v).join(" + ")}</div>`).join("") +
+      enables.map(d=>`<div class="kv" style="color:var(--physics)">⇢ once done, enables <b style="border:none">${verbOf(d.to)}</b></div>`).join("")
+    : `<div class="kv" style="color:var(--dim)">independent — no dependencies (may run concurrently or in any order)</div>`;
+  const coord = (s.ag.coord||[]).map(c=>`<div class="coord">${c}</div>`).join("");
+  const html = `
+    <div class="cols">
+      <div class="col">
+        <div class="sec"><h4>Intent ${info("action")}</h4>
+          <div class="kv"><b>verb</b> ${a.verb}</div>
+          <div class="kv"><b>actor</b> ${a.actor} · <b>role</b> ${a.role}</div>
+          <div class="kv"><b>target</b> <span class="mono">${a.target}</span></div></div>
+        <div class="sec"><h4>Parameters ${info("params")}</h4>${params}</div>
+      </div>
+      <div class="col">
+        <div class="sec"><h4>Motion Reference ${info("motion")}</h4><div class="kv mono">${a.motion||"—"}</div>
+          <div class="kv" style="color:var(--dim);font-size:11.5px">how the body moved — distinct from Parameters (intended outcome)</div></div>
+        <div class="sec"><h4>Dependencies ${info("dep")}</h4>${depHtml}</div>
+        ${coord?`<div class="sec"><h4>Coordination ${info("coord")}</h4>${coord}</div>`:""}
+      </div>
+    </div>`;
+  openDock("Action · "+PMG_DATA.states[sid].name, a.verb, html, "action", sid+"__"+aid);
+}
+
+function dockObs(sid){
+  const s=PMG_DATA.states[sid];
+  const html = s.obs.map(cid=>{ const c=PMG_DATA.conditions[cid]; if(!c) return ""; const ct=PMG_DATA.contracts[cid];
+    return `<div class="cond"><span class="pid">${cid}</span> — ${c.d}
+      <div class="pred" data-tip="${tip("predicate")}">${c.p[0]} <span class="rel">${c.p[1]}</span> ${c.p[2]}</div>
+      <div class="qual" data-tip="${tip("qualifier")}">qualifier: ${c.q}</div>` +
+      (ct?`<details class="contract"><summary>Execution Contract (outside the graph) ${info("contract")}</summary><div class="body"><div><b>verify:</b> ${ct.m}</div><div><b>tolerance:</b> ${ct.tol}</div><div><b>confidence:</b> ${ct.conf}</div></div></details>`
+        :`<details class="contract"><summary>Execution Contract ${info("contract")}</summary><div class="body">unfilled — awaiting Perception Encoder</div></details>`)+`</div>`;
+  }).join("");
+  openDock("Observable Conditions", s.name, html, "obs", sid+"__obs");
+}
+
+function dockExit(sid){
+  const s=PMG_DATA.states[sid];
+  if (!s.exits.length){ openDock("Exit Criteria", s.name, `<div class="kv">none — terminal state of the task.</div>`, "exit", sid+"__exit"); return; }
+  const html = s.exits.map(x=>{ const tState=PMG_DATA.states[x.target], tMs=msById(x.target);
+    const tLabel = x.portal?("milestone: "+(tMs?tMs.name:x.target)):(tState?tState.name:x.target);
+    return `<div class="exit ${x.kind==="loop"?"loop":(x.kind==="intended"?"intended":(x.kind==="alt"?"alt":""))}">
+      <div class="expr">${exprHTML(x.expr)}</div>
+      ${x.note?`<div style="font-size:11px;color:var(--dim);margin-bottom:5px">${x.note}</div>`:""}
+      <button class="goto" onclick='${x.portal?`gotoMilestone("${x.target}")`:`(function(){expanded.st.add("${x.target}");renderGraph("${x.target}");dockState("${x.target}");})()`}'>→ ${tLabel}</button></div>`;
+  }).join("");
+  openDock("Exit Criteria "+ ` ${info("exit")}`.replace(/</g,"<"), s.name, `<div class="kv" style="color:var(--dim);font-size:11.5px;margin-bottom:6px">Boolean expressions over Observable Conditions → next state.</div>`+html, "exit", sid+"__exit");
+}
+
+/* ---------- registry ---------- */
+function renderRegistry(){
+  const R=[`<button class="closebtn" onclick="document.getElementById('registry').classList.remove('open')">×</button>`,
+           `<h2>Object Registry ${info("registry")}</h2><div class="sub">task-level · identity is global, state is local</div>`];
+  PMG_DATA.registry.forEach(o=>{ R.push(`<div class="robj" data-oid="${o.id}" onclick="highlightObject('${o.id}',this)">
+    <span class="rcls">${o.cls}</span><span class="rid">${o.id}</span><div>${o.name}</div>
+    <div class="raff">${o.intrinsic} · geometry: <span class="mono">${o.geo}</span></div>
+    <div class="raff">affordances: ${o.aff.join(", ")}</div></div>`); });
+  R.push(`<div class="note">${PMG_DATA.registryNote}</div>`);
+  $("#registry").innerHTML=R.join("");
+}
+function highlightObject(oid,el){
+  document.querySelectorAll(".robj").forEach(x=>x.classList.remove("sel"));
+  cy.nodes().removeClass("obj-hit");
+  if (el.dataset.on==="1"){ el.dataset.on=""; return; }
+  document.querySelectorAll(".robj").forEach(x=>x.dataset.on="");
+  el.classList.add("sel"); el.dataset.on="1";
+  cy.nodes().forEach(n=>{ const s=PMG_DATA.states[n.id()]; if(s&&s.objects.some(o=>o.ref===oid)) n.addClass("obj-hit"); });
+}
+
+/* ---------- shared ---------- */
+function renderTimeline(){
+  const tr=$("#tlTrack"); tr.innerHTML="";
+  PMG_DATA.milestones.forEach(m=>{ const seg=document.createElement("div");
+    seg.className="tl-seg "+(m.kind==="physics"?"physics":"canonical")+(expanded.ms.has(m.id)?" active":"");
+    seg.style.left=(m.fr[0]/TOTAL_FRAMES*100)+"%"; seg.style.width=Math.max(0.5,(m.fr[1]-m.fr[0])/TOTAL_FRAMES*100)+"%";
+    seg.title=`${m.name} · ${fmtT(m.fr[0])}–${fmtT(m.fr[1])}`; seg.onclick=()=>gotoMilestone(m.id); tr.appendChild(seg); });
+  const curSid = sel&&PMG_DATA.states[sid_of(sel.id)]?sid_of(sel.id):null;
+  PMG_DATA.milestones.forEach(m=>{ if(!expanded.ms.has(m.id)) return;
+    m.states.forEach(sid=>{ const s=PMG_DATA.states[sid]; const t=document.createElement("div");
+      t.className="tl-state"+(sid===curSid?" cur":""); t.style.left=(s.fr[0]/TOTAL_FRAMES*100)+"%";
+      t.style.width=Math.max(0.25,(s.fr[1]-s.fr[0])/TOTAL_FRAMES*100)+"%"; t.title=`${s.name} · ${frLabel(s.fr)}`;
+      t.onclick=ev=>{ev.stopPropagation(); expanded.st.add(sid); if(PMG_DATA.states[sid].ag)expanded.ag.add(sid); renderGraph(sid); dockState(sid);}; tr.appendChild(t); });
+  });
+}
+function fitView(){ if(!cy)return; cy.resize(); cy.fit(undefined,50); if(cy.zoom()<0.5){cy.zoom(0.5);cy.center();} }
+window.addEventListener("resize",()=>requestAnimationFrame(fitView));
+function setTitle(t,n){ $("#viewtitle .t").textContent=t; $("#viewtitle .n").textContent=n; }
+function setCrumbs(items){ const el=$("#crumbs"); el.innerHTML="";
+  items.forEach((it,i)=>{ if(i){const sep=document.createElement("span");sep.className="crumb-sep";sep.textContent="›";el.appendChild(sep);}
+    const c=document.createElement("span"); c.className="crumb"+(it.current?" current":""); c.textContent=it.label; if(it.go)c.onclick=it.go; el.appendChild(c); });
+}
+</script>
+</body>
+</html>
