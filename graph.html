@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Graph — Procedural Memory Graph</title>
+<link rel="stylesheet" href="pmg.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="brand"><a href="index_dev.html">PMG</a><span class="tag">Procedural Memory Graph</span></div>
+  <div class="links">
+    <a href="index_dev.html">Home</a>
+    <a href="compiler.html">Compiler</a>
+    <a href="graph.html" class="active">Graph</a>
+    <a href="idea.md" class="doc" target="_blank">Design doc</a>
+  </div>
+</div></nav>
+
+<div class="pagehero"><div class="wrap">
+  <a class="backlink" href="index_dev.html">← Architecture</a>
+  <h1>The Procedural Memory Graph</h1>
+  <p class="sub">The representation itself. A world-centric, hierarchical graph where every node is a <b>world state</b> — there are no action, recovery, or control nodes. Everything a procedure needs lives inside the states.</p>
+  <div class="onthispage">
+    <a href="#schema">Schema</a>
+    <a href="#state">State Model</a>
+    <a href="#actions">Action Groups</a>
+    <a href="#contract">Execution Contract</a>
+    <a href="#examples">Examples</a>
+    <a href="#viewer">Viewer</a>
+  </div>
+</div></div>
+
+<!-- SCHEMA -->
+<section id="schema"><div class="wrap">
+  <div class="eyebrow">Graph Schema</div>
+  <h2>A four-level hierarchy</h2>
+  <p class="lead">A Task divides into semantic Milestones; each Milestone owns a Local Execution Graph; the graph is a chain of Procedural States. Every node represents a world state — procedural execution emerges from traversing between them.</p>
+  <div class="hline">
+    <span class="h">Task</span><span class="a">→</span>
+    <span class="h">Milestones</span><span class="a">→</span>
+    <span class="h">Local Execution Graph</span><span class="a">→</span>
+    <span class="h hl">Procedural States</span>
+  </div>
+  <p class="body" style="margin-top:26px">The Local Execution Graph is a directed graph <em>with cycles</em>, not a DAG — retries and recovery are simply loops back to a previously known state. Nothing in the graph is labelled "recovery"; it is just another valid path.</p>
+  <div class="tree">state
+├── <b>World Representation</b>
+│     ├── Procedural Geometry   <span class="c">// relations + contact graph</span>
+│     ├── Reference Geometry    <span class="c">// egocentric object poses</span>
+│     └── Dense Reconstruction  <span class="c">// by reference, via Frame Range</span>
+├── <b>Object Instances</b>      <span class="c">// → task-level Object Registry</span>
+├── Frame Range              <span class="c">// canonical temporal reference</span>
+├── <b>Action Group</b>          <span class="c">// dependency DAG of parameterized actions</span>
+├── <span class="a">Observable Conditions</span>    <span class="c">// symbolic; verification is external</span>
+├── <span class="a">Exit Criteria</span>            <span class="c">// boolean expressions → target states</span>
+├── Statistics
+└── Confidence</div>
+</div></section>
+
+<!-- STATE MODEL -->
+<section id="state"><div class="wrap">
+  <div class="eyebrow">State Model</div>
+  <h2>A state is a stable phase of the world</h2>
+  <p class="lead">A Procedural State is not a single frame — it spans a meaningful segment of time during which the world holds a stable configuration. It is event-driven: a new node is created only on a meaningful procedural event, never because time passed.</p>
+  <div class="grid3">
+    <div class="card"><h3>World Representation</h3><p>Three purpose-based geometry layers: <b>Procedural</b> (relations + contacts), <b>Reference</b> (egocentric poses), and <b>Dense Reconstruction</b> (referenced by Frame Range, never embedded). The graph stays a knowledge graph, not a 3D database.</p></div>
+    <div class="card"><h3>Objects: registry + instances</h3><p>Identity is global, state is local. A task-level Object Registry holds each physical object once; per-state Object Instances reference it and add only what varies — pose, articulation, contacts.</p></div>
+    <div class="card"><h3>Egocentric &amp; event-driven</h3><p>Everything is relative to the doer's viewpoint. Waiting ten seconds doesn't create a node — temporal information attaches to the existing state via its Frame Range.</p></div>
+  </div>
+</div></section>
+
+<!-- ACTION GROUPS -->
+<section id="actions"><div class="wrap">
+  <div class="eyebrow">Action Groups</div>
+  <h2>A dependency DAG of parameterized actions</h2>
+  <p class="lead">Each state owns an Action Group — the intentional operations that transform the world. It is a partial-order DAG: edges are <em>dependency</em> edges, not temporal ones. Independent actions run concurrently; dependent actions wait for the conditions their parents produce.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>An Action is a rich object</h3>
+      <div class="tags">
+        <span class="pill b">verb</span><span class="pill b">actor</span><span class="pill b">target</span>
+        <span class="pill p">parameters</span><span class="pill">motion ref</span><span class="pill">role</span>
+      </div>
+      <p style="margin-top:12px"><b>Parameters</b> are the intended operating point — <span class="mono">temperature = 350&nbsp;°C</span>, <span class="mono">knob → Simmer</span>, <span class="mono">force = gentle</span>. This is intention, distinct from Motion Reference (how the body moved) and Observable Conditions (the verified outcome). Over many demonstrations the PMG can learn canonical values and their ranges.</p>
+    </div>
+    <div class="card">
+      <h3>Order-invariant compilation</h3>
+      <p>Two demonstrations — <span class="mono">Rotate→Pick→Click</span> and <span class="mono">Pick→Rotate→Click</span> — compile to the <em>same</em> Action Group, because the graph stores dependencies, not the order that happened to be performed.</p>
+      <p style="margin-top:10px"><b>Coordination constraints</b> capture genuinely simultaneous cooperation — <em>maintain heat while pulling the pin</em> — which is where timing synchronization between parallel actions lives.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- EXECUTION CONTRACT -->
+<section id="contract"><div class="wrap">
+  <div class="eyebrow">Execution Contract</div>
+  <h2>Symbolic knowledge in the graph — execution outside it</h2>
+  <p class="lead">The recurring design principle: the graph stores symbolic procedural <b>knowledge</b>; execution-specific concerns — perception verification, motion generation, controllers, scheduling — stay <b>external contracts</b> that operate over the graph rather than becoming part of it.</p>
+  <div class="split">
+    <div class="l">
+      <div class="tag2">in the graph</div>
+      <h3>Observable Conditions</h3>
+      <p class="muted" style="font-size:14px;margin-top:6px">Symbolic, verifiable evidence that the world changed. A predicate <span class="mono">(subject · relation · object/value)</span> plus a temporal qualifier.</p>
+      <div class="tree" style="margin-top:12px">flame       present
+tip_temp  ≥  350 °C   <span class="c">// sustained ≥ 5s</span>
+pin[i]    removed-from PCB</div>
+      <p class="muted" style="font-size:14px;margin-top:12px"><b>Exit Criteria</b> are boolean expressions over condition ids, each mapped to a next state. Retries, alternatives, and recovery are just loops and branches here.</p>
+    </div>
+    <div class="r">
+      <div class="tag2">outside the graph</div>
+      <h3>Verification Contract</h3>
+      <p class="muted" style="font-size:14px;margin-top:6px">How a condition is checked lives outside the graph, keyed by condition id — so the memory stays perception-agnostic.</p>
+      <div class="tree" style="margin-top:12px">verify:      specular-reflectance detector
+tolerance:   gloss Δ &gt; 0.3
+evidence:    frames 7010–7090
+confidence:  0.86</div>
+      <p class="muted" style="font-size:14px;margin-top:12px">The <em>PMG Perception Encoder</em> fills these contracts later. The graph says <b>what</b> must be true; the contract says <b>how</b> to confirm it.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- EXAMPLES -->
+<section id="examples"><div class="wrap">
+  <div class="eyebrow">Examples</div>
+  <h2>Worked state chains</h2>
+  <p class="lead">The same schema captures manipulation and physics-driven evolution alike — nodes are world states, and some transitions need no action at all.</p>
+
+  <h3 style="margin-top:26px">Boil Water <span class="muted" style="font-weight:400;font-size:14px">— physics evolves the world with no action</span></h3>
+  <div class="chain">
+    <div class="snode">Water Cold<span class="sd">turn knob + click lighter</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode phys">Water Heating<span class="sd">∅ actions · physics</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode">Water Boiling<span class="sd">rolling boil detected</span></div>
+  </div>
+
+  <h3 style="margin-top:36px">Desolder Header <span class="muted" style="font-weight:400;font-size:14px">— a per-pin loop with a two-handed Action Group</span></h3>
+  <div class="chain">
+    <div class="snode">Joint Cold<span class="sd">iron placed · 350 °C</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode">Solder Molten<span class="sd">heat + pull, two hands</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode">Pin Removed<span class="sd">stubs remain? loop back</span></div>
+    <div class="sarrow">→</div>
+    <div class="snode">Hole Clear<span class="sd">ready for rework</span></div>
+  </div>
+  <div class="chain-note" style="margin-top:22px"><div class="cn">every state owns: world representation · parameterized actions · observable conditions · exit criteria</div></div>
+</div></section>
+
+<!-- VIEWER -->
+<section id="viewer"><div class="wrap">
+  <div class="eyebrow">Viewer</div>
+  <h2>Explore the compiled graph</h2>
+  <p class="lead">This is not a visualization of the demonstration — it <em>is</em> the procedural memory constructed from it. Click a milestone to expand its states, a state to open its compartments, an action to unfold its parameters.</p>
+  <div class="viewerbox">
+    <div class="viewerbar"><span class="dot"></span><span class="dot" style="background:#e0be7d"></span><span class="dot" style="background:#9cc7b6"></span>
+      <span class="ttl">pmg_viewer.html — Desolder Header · schema v0.10</span>
+      <a class="open" href="pmg_viewer.html" target="_blank">open in new tab ↗</a></div>
+    <iframe class="viewer" src="pmg_viewer.html" title="PMG interactive graph viewer" loading="lazy"></iframe>
+  </div>
+  <p class="muted" style="margin-top:14px;font-size:14px">Second worked example (physics-driven states, steeping loop): <a href="pmg_viewer2.html" target="_blank">Make Tea →</a></p>
+</div></section>
+
+<footer><div class="wrap">
+  <div>The Procedural Memory Graph · working research draft · <span class="draft">v0.10</span></div>
+  <div>
+    <a href="index_dev.html">Home</a> ·
+    <a href="compiler.html">Compiler</a> ·
+    <a href="pmg_viewer.html" target="_blank">Interactive viewer</a> ·
+    <a href="idea.md" target="_blank">Design doc</a>
+  </div>
+</div></footer>
+
+</body>
+</html>

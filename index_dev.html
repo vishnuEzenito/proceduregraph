@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Procedural Memory Graph (PMG)</title>
+<link rel="stylesheet" href="pmg.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="brand"><a href="index_dev.html">PMG</a><span class="tag">Procedural Memory Graph</span></div>
+  <div class="links">
+    <a href="index_dev.html" class="active">Home</a>
+    <a href="#problem">Problem</a>
+    <a href="#existing">Existing Systems</a>
+    <a href="#why">Why PMG</a>
+    <a href="#architecture">Architecture</a>
+    <a href="compiler.html">Compiler</a>
+    <a href="graph.html">Graph</a>
+    <a href="idea.md" class="doc" target="_blank">Design doc</a>
+  </div>
+</div></nav>
+
+<!-- HERO -->
+<header class="hero"><div class="wrap">
+  <h1>One demonstration becomes a<br><span class="grad">reusable procedural memory</span></h1>
+  <p class="sub">The Procedural Memory Graph compiles expert demonstrations into explicit procedural memories that capture how the world evolves during a task — making expert knowledge reusable for future execution.</p>
+  <div class="flow">
+    <div class="fnode"><div class="ft">Expert demonstration</div><div class="fd">egocentric video + audio</div><div class="pb"><i></i></div></div>
+    <div class="fconn d1"></div>
+    <div class="fnode"><div class="ft">PMG Compiler</div><div class="fd">perceive → expand → compress</div></div>
+    <div class="fconn d2"></div>
+    <div class="fnode hl"><div class="ft">Procedural Memory Graph</div><div class="minigraph"><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="fconn d3"></div>
+    <div class="fnode"><div class="inf">∞</div><div class="ft">executions</div><div class="fd">human or humanoid</div></div>
+  </div>
+  <div class="cta">
+    <a class="btn primary" href="graph.html">Explore the graph →</a>
+    <a class="btn" href="compiler.html">How it's built →</a>
+    <a class="btn" href="idea.md" target="_blank">Design document</a>
+  </div>
+</div></header>
+
+<!-- THESIS -->
+<div class="thesis"><div class="wrap">
+  <div class="k">The thesis</div>
+  <div class="t">Procedures should be stored as explicit world evolution, not <span class="neg">implicit trajectories or model weights</span>.</div>
+</div></div>
+
+<!-- PROBLEM -->
+<section id="problem"><div class="wrap">
+  <div class="eyebrow">The Problem</div>
+  <h2>How do you store "how to do something" so anyone can execute it?</h2>
+  <p class="lead">A demonstration is ephemeral: it records what happened once, from one viewpoint, with all the incidental fidgeting. Humans don't remember procedures that way — we compress experience into meaningful milestones, keep the decisions that matter, discard the rest, and reconstruct the procedure when we perform it again.</p>
+  <p class="body">We want machines to do the same: turn a demonstration into procedural knowledge that is <b>interpretable, editable, mergeable across demonstrations, recoverable from failure, and transferable across bodies</b>. That knowledge should carry enough physical detail — geometry, contacts, timing, operating points — to actually be executed, while staying a structure a person can read and correct.</p>
+  <div class="statement" style="margin-top:38px">
+    <div class="l dim">Videos are memory.</div>
+    <div class="l">Videos are <em>observations</em>.</div>
+    <div class="l">World evolution is memory. <span class="grad">PMG stores world evolution.</span></div>
+  </div>
+</div></section>
+
+<!-- EXISTING SYSTEMS -->
+<section id="existing"><div class="wrap">
+  <div class="eyebrow">Existing Systems</div>
+  <h2>They answer different questions</h2>
+  <p class="lead">Today's approaches fall into a few families. Each is excellent at its own job — and each leaves the procedural-memory question unanswered. PMG doesn't compete with them; it fills the gap beneath them.</p>
+  <div class="qrows">
+    <div class="qrow"><div class="lbl">Behavior Trees / ROS</div><div class="q">How should I execute a manually designed procedure?</div></div>
+    <div class="qrow"><div class="lbl">Imitation Learning</div><div class="q">How do I imitate this demonstration?</div></div>
+    <div class="qrow"><div class="lbl">Foundation Models</div><div class="q">How do I reason from broad prior knowledge?</div></div>
+    <div class="qrow hl"><div class="lbl">Procedural Memory Graph</div><div class="q">How should procedural knowledge itself be represented, learned, accumulated, and reused?</div></div>
+  </div>
+  <details class="moretbl">
+    <summary>Representation comparison — strengths and limitations</summary>
+    <table class="cmp">
+      <thead><tr><th>Approach</th><th>Strength</th><th>Limitation</th></tr></thead>
+      <tbody>
+        <tr><td>Hardcoded workflows<br><span class="muted" style="font-weight:400">BTs · ROS · state machines</span></td><td>Deterministic and reliable</td><td>Hand-authored; expensive to maintain; hard to learn from demonstrations or evolve</td></tr>
+        <tr><td>Trajectory / imitation learning</td><td>Captures expert motion</td><td>Hard to inspect, edit, merge, or explain; brittle outside the training distribution</td></tr>
+        <tr><td>Language / generic LLMs</td><td>Flexible, broad reasoning</td><td>Procedural knowledge stays implicit in weights — non-persistent, hard to verify step-by-step</td></tr>
+        <tr class="hl"><td>Procedural Memory Graph</td><td>Explicit, editable, persistent procedural memory</td><td>Purpose-built for learning, storing, reasoning about, and executing procedures</td></tr>
+      </tbody>
+    </table>
+  </details>
+</div></section>
+
+<!-- WHY PMG -->
+<section id="why"><div class="wrap">
+  <div class="eyebrow">Why PMG</div>
+  <h2>What procedural memory needs</h2>
+  <p class="lead">The design philosophy in one line: <b>separate procedural knowledge from the reasoning system.</b> The graph stores the procedure; reasoning systems consume it rather than implicitly memorizing it. That separation is what makes the following possible.</p>
+  <div class="grid3">
+    <div class="card"><h3>Explicit &amp; editable</h3><p>Interpretable, verifiable, correctable by an expert — not opaque weights or a black-box policy.</p></div>
+    <div class="card"><h3>World-centric</h3><p>Nodes are meaningful world states, not trajectories. Procedures are modeled as changes in the world.</p></div>
+    <div class="card"><h3>Mergeable</h3><p>Many demonstrations accumulate into one memory of the procedure — with alternatives and recovery paths.</p></div>
+    <div class="card"><h3>Persistent</h3><p>Knowledge lives outside the model and survives across sessions, tasks, and model upgrades.</p></div>
+    <div class="card"><h3>Embodiment-agnostic</h3><p>Stores intent and operating points, never one body's motion — so it guides a human or a humanoid.</p></div>
+    <div class="card"><h3>Procedurally relevant</h3><p>Only information needed to reproduce the task is kept; incidental motion and background are discarded.</p></div>
+  </div>
+</div></section>
+
+<!-- OVERALL ARCHITECTURE -->
+<section id="architecture"><div class="wrap">
+  <div class="eyebrow">Overall Architecture</div>
+  <h2>Two stages build it — one engine runs it</h2>
+  <p class="lead">A <b>Compiler</b> turns demonstrations into the graph; the <b>Graph</b> is the persistent memory; a Procedural Reasoning Engine consumes it at runtime to guide whichever executor is present.</p>
+
+  <div class="pipe">
+    <div class="stage"><div class="n">input</div><div class="t">Demonstration</div><div class="d">video + audio</div></div>
+    <div class="arrow">→</div>
+    <div class="stage"><div class="n">build</div><div class="t">PMG Compiler</div><div class="d">perceive · expand · compress</div></div>
+    <div class="arrow">→</div>
+    <div class="stage hl"><div class="n">memory</div><div class="t">Procedural Memory Graph</div><div class="d">the persistent representation</div></div>
+    <div class="arrow">→</div>
+    <div class="stage"><div class="n">run</div><div class="t">Reasoning Engine</div><div class="d">reads · reasons · verifies</div></div>
+    <div class="arrow">→</div>
+    <div class="stage"><div class="n">act</div><div class="t">Execution</div><div class="d">human / humanoid</div></div>
+  </div>
+
+  <p class="body" style="margin-top:34px">Two parts of this architecture have their own design in depth:</p>
+  <div class="archcards">
+    <a class="archcard" href="compiler.html">
+      <div class="ah"><h3>The Compiler</h3><span class="go">Open →</span></div>
+      <p>How one demonstration becomes a graph — the multi-pass pipeline, the intermediate representation, and the algorithms that segment, match, and merge procedural states.</p>
+      <div class="tags"><span class="pill">Pipeline</span><span class="pill">Passes</span><span class="pill">Algorithms</span><span class="pill">IR</span><span class="pill">Evidence</span></div>
+    </a>
+    <a class="archcard" href="graph.html">
+      <div class="ah"><h3>The Graph</h3><span class="go">Open →</span></div>
+      <p>The representation itself — the procedural hierarchy, the State schema, dependency-DAG Action Groups, the execution contract, worked examples, and the interactive viewer.</p>
+      <div class="tags"><span class="pill">Schema</span><span class="pill">State Model</span><span class="pill">Action Groups</span><span class="pill">Execution Contract</span><span class="pill">Viewer</span></div>
+    </a>
+  </div>
+
+  <h3 style="margin-top:44px">Runtime — the Procedural Reasoning Engine</h3>
+  <p class="body">Every runtime decision is grounded in the graph. The engine localizes the current world state, decides the next step, requests perception verification, and guides the executor. Today it may be an LLM; tomorrow a specialized model — the architecture doesn't care.</p>
+  <div class="loopv">
+    <div class="lv">Current Observation</div><div class="down">↓</div>
+    <div class="lv">Perception</div><div class="down">↓</div>
+    <div class="lv">Procedural State Matching <span class="s">"where in the procedure am I?"</span></div><div class="down">↓</div>
+    <div class="lv hl">Procedural Memory Graph <span class="s">the persistent memory</span></div><div class="down">↓</div>
+    <div class="lv eng">Procedural Reasoning Engine <span class="s">reads · reasons · decides · verifies</span></div><div class="down">↓</div>
+    <div class="lv">Action Selection</div><div class="down">↓</div>
+    <div class="exrow">
+      <div class="ex"><span>🧑‍🔧</span>Human trainee</div>
+      <div class="ex"><span>🤖</span>Humanoid robot</div>
+      <div class="ex"><span>◈</span>Intelligent agent</div>
+    </div>
+  </div>
+  <p class="body muted" style="text-align:center;max-width:640px;margin:20px auto 0;font-size:14.5px">The procedural memory never stores embodiment-specific trajectories. The memory stays unchanged — only the executor changes.</p>
+</div></section>
+
+<!-- VISION -->
+<section id="vision"><div class="wrap">
+  <div class="eyebrow">Vision</div>
+  <div class="bigquote">"A demonstration is not the memory.<br>It is merely <span class="grad">evidence from which procedural memory is constructed</span>."</div>
+  <div class="threeline">
+    <div><b>Learning</b><br>builds the memory</div>
+    <div><b>Reasoning</b><br>traverses it</div>
+    <div><b>Execution</b><br>follows it</div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <div>Procedural Memory Graph · working research draft · <span class="draft">v0.10</span></div>
+  <div>
+    <a href="compiler.html">Compiler</a> ·
+    <a href="graph.html">Graph</a> ·
+    <a href="pmg_viewer.html" target="_blank">Interactive viewer</a> ·
+    <a href="idea.md" target="_blank">Design doc</a>
+  </div>
+</div></footer>
+
+</body>
+</html>

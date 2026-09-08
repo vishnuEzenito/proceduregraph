@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PMG Viewer — Procedural Memory Graph v0.9</title>
+<script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #151d2e; --panel2: #1a2338; --line: #2a3752;
+    --text: #dce6f5; --dim: #8fa3c2; --mono: "SF Mono", "Fira Code", Consolas, monospace;
+    --canonical: #5b8dee; --alt: #e6a23c; --loop: #e0654f; --physics: #4ec9a0;
+    --chip: #223052;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+
+  #topbar { display:flex; align-items:center; gap:14px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line); height:52px; }
+  #topbar h1 { font-size:15px; font-weight:600; white-space:nowrap; }
+  #topbar h1 .v { color:var(--dim); font-weight:400; font-size:12px; margin-left:6px; }
+  #crumbs { flex:1; display:flex; align-items:center; gap:6px; font-size:13px; overflow:hidden; white-space:nowrap; }
+  .crumb { color:var(--canonical); cursor:pointer; padding:3px 8px; border-radius:6px; }
+  .crumb:hover { background:var(--panel2); }
+  .crumb.current { color:var(--text); cursor:default; background:var(--panel2); }
+  .crumb-sep { color:var(--dim); }
+  #topbar button { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 11px; font-size:12.5px; cursor:pointer; }
+  #topbar button:hover { border-color:var(--canonical); }
+
+  #main { display:flex; height:calc(100% - 52px); }
+  #graphwrap { flex:1; position:relative; min-width:0; overflow:hidden; }
+  #cy { position:absolute; inset:0; }
+  #viewtitle { position:absolute; top:12px; left:14px; z-index:5; pointer-events:none; }
+  #viewtitle .t { font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
+  #viewtitle .n { font-size:17px; font-weight:600; }
+  #hint { position:absolute; bottom:8px; left:14px; right:14px; z-index:5; color:var(--dim); font-size:12px; pointer-events:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  #legend { position:absolute; top:12px; right:12px; z-index:6; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:12px; display:none; min-width:230px; }
+  #legend.open { display:block; }
+  #legend h3 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin-bottom:8px; }
+  .lg-row { display:flex; align-items:center; gap:8px; margin:5px 0; }
+  .lg-swatch { width:22px; height:0; border-top:3px solid; border-radius:2px; flex:none; }
+  .lg-box { width:14px; height:14px; border-radius:4px; flex:none; }
+
+  /* Inspector */
+  #inspector { width:0; transition:width .18s ease; background:var(--panel); border-left:1px solid var(--line); overflow:hidden; flex:none; }
+  #inspector.open { width:min(430px, 100%); }
+  #insInner { width:min(430px, 100vw); height:100%; overflow-y:auto; padding:16px 18px 40px; }
+  #insInner h2 { font-size:17px; margin-bottom:2px; }
+  #insInner .sub { color:var(--dim); font-size:12px; margin-bottom:12px; }
+  .badge { display:inline-block; font-size:10.5px; font-family:var(--mono); padding:2px 8px; border-radius:20px; background:var(--chip); margin-right:6px; }
+  .badge.physics { color:var(--physics); border:1px solid var(--physics); background:transparent; }
+  .sec { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+  .sec h4 { font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:8px; }
+  .kv { font-size:12.5px; margin:3px 0; }
+  .kv b { color:var(--dim); font-weight:500; }
+  .mono { font-family:var(--mono); font-size:12px; }
+  ul.plain { list-style:none; }
+  ul.plain li { padding:3px 0 3px 14px; position:relative; font-size:12.5px; }
+  ul.plain li::before { content:"•"; position:absolute; left:2px; color:var(--dim); }
+  .cond { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0; }
+  .cond .pid { font-family:var(--mono); font-size:11px; color:var(--dim); }
+  .cond .pred { font-family:var(--mono); font-size:12.5px; margin:3px 0; }
+  .cond .pred .rel { color:var(--alt); }
+  .cond .qual { font-size:11px; color:var(--physics); }
+  details.contract { margin-top:5px; font-size:12px; }
+  details.contract summary { cursor:pointer; color:var(--dim); font-size:11.5px; }
+  details.contract .body { padding:6px 0 2px 12px; color:var(--dim); }
+  details.contract .body div { margin:2px 0; }
+  .exit { background:var(--panel2); border-left:3px solid var(--canonical); border-radius:6px; padding:8px 10px; margin:6px 0; }
+  .exit.loop { border-left-color:var(--loop); }
+  .exit.alt { border-left-color:var(--alt); }
+  .exit .expr { font-family:var(--mono); font-size:12px; margin-bottom:6px; }
+  .exit .expr .op { color:var(--alt); }
+  .goto { background:var(--chip); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:3px 9px; font-size:11.5px; cursor:pointer; }
+  .goto:hover { border-color:var(--canonical); color:var(--canonical); }
+  table.objs { width:100%; border-collapse:collapse; font-size:12px; }
+  table.objs td { padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  table.objs td:first-child { font-family:var(--mono); color:var(--canonical); white-space:nowrap; }
+  #cyAg { height:170px; background:var(--bg); border:1px solid var(--line); border-radius:8px; margin-top:4px; }
+  .coord { font-size:12px; color:var(--alt); padding:3px 0 3px 14px; position:relative; }
+  .coord::before { content:"⇄"; position:absolute; left:0; }
+  .confbar { height:6px; background:var(--panel2); border-radius:4px; overflow:hidden; margin-top:4px; }
+  .confbar div { height:100%; background:var(--physics); }
+  .closebtn { float:right; background:none; border:none; color:var(--dim); font-size:18px; cursor:pointer; }
+
+  /* (i) glossary tooltips */
+  .info { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%;
+          background:var(--chip); border:1px solid var(--line); color:var(--dim); font-size:9px; font-family:var(--mono);
+          cursor:help; margin-left:5px; vertical-align:middle; font-style:normal; letter-spacing:0; }
+  [data-tip] { position:relative; }
+  b[data-tip], span.tt[data-tip] { border-bottom:1px dotted #55648a; cursor:help; }
+  [data-tip]::after { content:attr(data-tip); position:absolute; left:0; bottom:calc(100% + 7px); width:250px;
+          background:#0a101d; border:1px solid var(--line); color:var(--text); font-weight:400; font-style:normal;
+          font-family:-apple-system,"Segoe UI",Roboto,sans-serif; font-size:11.5px; line-height:1.5; padding:8px 10px;
+          border-radius:8px; opacity:0; pointer-events:none; transition:opacity .12s ease .06s; z-index:70;
+          white-space:normal; text-align:left; text-transform:none; letter-spacing:0; box-shadow:0 8px 24px #000a; }
+  [data-tip]:hover::after { opacity:1; }
+  .exit[data-tip]::after, .cond [data-tip]::after { width:230px; }
+
+  /* Filmstrip + lightbox */
+  .strip { display:flex; gap:6px; margin-top:12px; }
+  .strip figure { flex:1; min-width:0; }
+  .strip img { width:100%; display:block; border-radius:6px; border:1px solid var(--line); cursor:zoom-in; }
+  .strip figcaption { font-size:10.5px; color:var(--dim); text-align:center; margin-top:2px; font-family:var(--mono); }
+  #lightbox { position:fixed; inset:0; background:rgba(5,8,14,.9); display:none; align-items:center; justify-content:center; flex-direction:column; gap:10px; z-index:50; cursor:zoom-out; }
+  #lightbox.open { display:flex; }
+  #lightbox img { max-width:92vw; max-height:84vh; border-radius:10px; border:1px solid var(--line); }
+  #lightbox .cap { color:var(--dim); font-size:12.5px; font-family:var(--mono); }
+
+  /* Video timeline */
+  #timeline { position:absolute; left:14px; right:14px; bottom:34px; z-index:5; }
+  #tlTrack { position:relative; height:24px; background:var(--panel); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .tl-seg { position:absolute; top:0; bottom:0; cursor:pointer; opacity:.85; }
+  .tl-seg:hover { opacity:1; }
+  .tl-seg.canonical { background:#31548f; }
+  .tl-seg.alternative { background:#8f6a25; }
+  .tl-seg.active { outline:2px solid #fff; opacity:1; }
+  .tl-state { position:absolute; top:0; bottom:0; background:#5b8dee66; border-right:1px solid #0f1420; cursor:pointer; }
+  .tl-state:hover, .tl-state.cur { background:#8fb4ff; }
+  .tl-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--dim); font-family:var(--mono); margin-top:3px; }
+
+  /* Registry slide-over */
+  #registry { position:absolute; top:0; right:0; bottom:0; width:360px; background:var(--panel); border-left:1px solid var(--line); z-index:20; transform:translateX(100%); transition:transform .18s ease; overflow-y:auto; padding:16px 18px; }
+  #registry.open { transform:translateX(0); }
+  #registry h2 { font-size:15px; margin-bottom:2px; }
+  #registry .sub { color:var(--dim); font-size:12px; margin-bottom:10px; }
+  .robj { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin:7px 0; cursor:pointer; }
+  .robj:hover, .robj.sel { border-color:var(--canonical); }
+  .robj .rid { font-family:var(--mono); font-size:11.5px; color:var(--canonical); }
+  .robj .rcls { font-size:11px; color:var(--dim); float:right; }
+  .robj .raff { font-size:11.5px; color:var(--dim); margin-top:3px; }
+  .note { background:var(--panel2); border:1px dashed var(--line); border-radius:8px; padding:9px 11px; margin-top:12px; font-size:11.8px; color:var(--dim); }
+  #cdnerr { display:none; padding:40px; font-size:15px; color:var(--alt); }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <h1>PMG Viewer<span class="v">schema v0.9</span></h1>
+  <div id="crumbs"></div>
+  <button id="btnCollapse">Collapse all</button>
+  <button id="btnRegistry">Object Registry</button>
+  <button id="btnLegend">Legend</button>
+</div>
+<div id="main">
+  <div id="graphwrap">
+    <div id="viewtitle"><div class="t"></div><div class="n"></div></div>
+    <div id="cy"></div>
+    <div id="hint"></div>
+    <div id="timeline">
+      <div id="tlTrack"></div>
+      <div class="tl-labels"><span>0:00</span><span>video timeline — click to navigate</span><span>10:02</span></div>
+    </div>
+    <div id="legend">
+      <h3>Legend</h3>
+      <div class="lg-row"><span class="lg-box" style="background:#1e2a44;border:1.5px solid #5b8dee"></span> Milestone / Procedural State (collapsed)</div>
+      <div class="lg-row"><span class="lg-box" style="background:#121a2c;border:1.5px solid #3a4d75"></span> Expanded container (milestone / state)</div>
+      <div class="lg-row"><span class="lg-box" style="background:#223052;border:1px solid #3a4d75"></span> Action node (inside an expanded state)</div>
+      <div class="lg-row"><span class="lg-swatch" style="border-color:#e6a23c;border-top-width:2px"></span> Action dependency — "requires"</div>
+      <div class="lg-row"><span class="lg-box" style="background:transparent;border:1.5px dashed #4ec9a0"></span> Physics-driven state (no actions)</div>
+      <div class="lg-row"><span class="lg-swatch" style="border-color:#5b8dee"></span> Canonical transition</div>
+      <div class="lg-row"><span class="lg-swatch" style="border-color:#e6a23c"></span> Alternative procedure</div>
+      <div class="lg-row"><span class="lg-swatch" style="border-color:#e0654f"></span> Retry / recovery loop</div>
+      <div class="lg-row"><span class="lg-swatch" style="border-color:#8fa3c2;border-top-style:dashed"></span> Intended path (never taken)</div>
+    </div>
+  </div>
+  <div id="inspector"><div id="insInner"></div></div>
+  <div id="registry"></div>
+</div>
+<div id="cdnerr">Could not load Cytoscape from CDN — an internet connection is required to render the graph.</div>
+<div id="lightbox" onclick="this.classList.remove('open')"><img alt="frame"><div class="cap"></div></div>
+
+<script>
+/* ================================================================
+   PMG_DATA — sample Procedural Memory Graph
+   Task: "Desolder header from sensor module"
+   Compiled (by hand) from the real 10:01.6 @ 50fps demonstration
+   video, following idea.md schema v0.9.
+   ================================================================ */
+const FPS = 50;
+const PMG_DATA = {
+  task: {
+    id: "task_desolder_header",
+    name: "Desolder Header from Sensor Module",
+    source: "WhatsApp Video 2026-07-02 (10:01.6 @ 50 fps, frames 0–30081)"
+  },
+
+  /* ---------- Task-level Object Registry ---------- */
+  registry: [
+    { id:"obj_pcb",     cls:"circuit-board", name:"Red sensor module PCB", intrinsic:"≈25×20 mm, 7-pin header footprint", geo:"geo/pcb_scan.splat", aff:["graspable","clippable","solderable"] },
+    { id:"obj_pins",    cls:"header-pins",   name:"7-pin male header row", intrinsic:"2.54 mm pitch, tin-plated", geo:"geo/header.mesh", aff:["cuttable","pullable","heatable"] },
+    { id:"obj_spacer",  cls:"plastic-part",  name:"Black header spacer", intrinsic:"joins the 7 pins", geo:"geo/spacer.mesh", aff:["cuttable"] },
+    { id:"obj_hands",   cls:"fixture",       name:"Helping-hands station", intrinsic:"6 articulated arms, alligator clips", geo:"geo/helpinghands.mesh", aff:["clamping"] },
+    { id:"obj_cutters", cls:"tool",          name:"Wire cutters (blue)", intrinsic:"flush-cut jaws", geo:"geo/cutters.mesh", aff:["cutting"] },
+    { id:"obj_iron",    cls:"tool",          name:"Soldering iron", intrinsic:"220 V / 60 W, dial 200–450 °C", geo:"geo/iron.mesh", aff:["heating"] },
+    { id:"obj_pump",    cls:"tool",          name:"Desoldering pump", intrinsic:"spring plunger, PTFE nozzle", geo:"geo/pump.mesh", aff:["suction"] },
+    { id:"obj_flux",    cls:"consumable",    name:"Flux paste tin", intrinsic:"rosin paste", geo:"geo/fluxtin.mesh", aff:["coating"] },
+    { id:"obj_pliers",  cls:"tool",          name:"Needle-nose pliers", intrinsic:"fine tip", geo:"geo/pliers.mesh", aff:["gripping","pulling"] },
+    { id:"obj_joints",  cls:"work-feature",  name:"Solder joints / through-holes ×7", intrinsic:"oxidised leaded solder", geo:"—", aff:["heatable","clearable"] }
+  ],
+  registryNote: "Procedural Relevance filter: the multimeter, breadboards and loose wiring visible on the bench are NOT in the registry — they never influence the procedure, so the compiler ignores them.",
+
+  /* ---------- Observable Conditions (symbolic; graph layer) ---------- */
+  conditions: {
+    c_board_in_hand:  { d:"Board picked up",            p:["PCB","held-by","hand.left"],                q:"instant" },
+    c_board_clipped:  { d:"Board secured in clip",      p:["PCB","gripped-by","helping-hands.clip3"],   q:"sustained ≥ 1s" },
+    c_spacer_cut:     { d:"Spacer segment severed",     p:["spacer.segment[i]","connectivity","none"],  q:"instant" },
+    c_segments_left:  { d:"Uncut segments remain",      p:["spacer.uncut_segments","> ","0"],           q:"instant" },
+    c_iron_powered:   { d:"Iron switched on",           p:["iron.power","==","ON"],                     q:"instant" },
+    c_dial_350:       { d:"Dial set to 350 °C",         p:["iron.dial","==","350 °C"],                  q:"instant" },
+    c_temp_350:       { d:"Tip at working temperature", p:["iron.tip_temp","≥","350 °C"],               q:"sustained ≥ 5s" },
+    c_plunger_latch:  { d:"Pump plunger latched",       p:["pump.plunger","==","latched"],              q:"instant" },
+    c_tip_on_joint:   { d:"Iron tip on joint",          p:["iron.tip","contact","joint[i]"],            q:"sustained ≥ 2s" },
+    c_solder_molten:  { d:"Solder is molten",           p:["joint[i].solder","phase","molten"],         q:"instant" },
+    c_nozzle_seated:  { d:"Pump nozzle over joint",     p:["pump.nozzle","over","joint[i]"],            q:"instant" },
+    c_suction_fired:  { d:"Suction released",           p:["pump","event","plunger-released"],          q:"instant" },
+    c_pins_loose:     { d:"Header moves freely",        p:["header-pins","mobility","loose"],           q:"instant" },
+    c_joint_blocked:  { d:"Joint still blocked",        p:["joint[i].hole","occupied-by","solder+pin"], q:"instant" },
+    c_attempts_high:  { d:"Repeated attempts failed",   p:["extraction.attempts","≥","6"],              q:"within 150s" },
+    c_pins_trimmed:   { d:"All pins cut to stubs",      p:["header-pins.protrusion","≈","0 mm"],        q:"instant" },
+    c_flux_applied:   { d:"Flux coats the joints",      p:["joints","coated-with","flux"],              q:"instant" },
+    c_grip_ok:        { d:"Pliers grip pin stub",       p:["pliers","gripping","pin-stub[i]"],          q:"sustained ≥ 0.5s" },
+    c_pin_out:        { d:"Pin stub extracted",         p:["pin-stub[i]","removed-from","PCB"],         q:"instant" },
+    c_stubs_left:     { d:"Pin stubs remain",           p:["pin-stubs.count","> ","0"],                 q:"instant" },
+    c_hole_clear:     { d:"Through-hole clear",         p:["hole[i]","occupied-by","nothing"],          q:"instant" },
+    c_holes_left:     { d:"Clogged holes remain",       p:["clogged-holes.count","> ","0"],             q:"instant" }
+  },
+
+  /* ---------- Execution Contracts (outside the graph; keyed by condition id) ---------- */
+  contracts: {
+    c_temp_350:      { m:"dial readout + solder-melt probe (VLM verify)",  tol:"±15 °C",       conf:0.72, ev:"frames 4250–4700" },
+    c_solder_molten: { m:"specular-reflectance change detector",           tol:"gloss Δ > 0.3", conf:0.86, ev:"frames 7010–7090, 19660…" },
+    c_board_clipped: { m:"contact graph: clip–PCB edge stable",            tol:"pose drift < 2 mm", conf:0.93, ev:"frames 1310–1350" },
+    c_pin_out:       { m:"pin-stub absent at hole in top-view crop",       tol:"IoU < 0.05",   conf:0.91, ev:"frames 19900, 20410…" },
+    c_hole_clear:    { m:"backlight-through-hole check / dark-spot absent", tol:"—",           conf:0.78, ev:"frames 29850–30050" },
+    c_grip_ok:       { m:"pliers-tip contact + micro-motion coupling",     tol:"slip < 1 mm",  conf:0.80, ev:"frames 19620–19700" }
+  },
+
+  /* ---------- Milestones (task spine) ---------- */
+  milestones: [
+    { id:"m1", name:"Board Mounted",              kind:"canonical",  fr:[0,1350],       states:["s1a","s1b","s1c"] },
+    { id:"m2", name:"Header Spacer Broken",       kind:"canonical",  fr:[1350,2900],    states:["s2a","s2b"] },
+    { id:"m3", name:"Iron At Temperature",        kind:"canonical",  fr:[2900,4700],    states:["s3a","s3b","s3c"] },
+    { id:"m4", name:"Pump Primed",                kind:"canonical",  fr:[4700,6350],    states:["s4a","s4b"] },
+    { id:"m5", name:"Solder Extraction Attempted",kind:"canonical",  fr:[6350,13750],   states:["s5a","s5b","s5c"] },
+    { id:"m6", name:"Pins Trimmed",               kind:"alternative",fr:[13750,16350],  states:["s6a","s6b"] },
+    { id:"m7", name:"Flux Applied",               kind:"alternative",fr:[16350,17400],  states:["s7a","s7b"] },
+    { id:"m8", name:"Pins Extracted Individually",kind:"alternative",fr:[19200,24400],  states:["s8a","s8b","s8c"] },
+    { id:"m9", name:"Through-Holes Cleared",      kind:"canonical",  fr:[24400,30081],  states:["s9a","s9b","s9c"] }
+  ],
+  spine: [
+    { from:"m1", to:"m2", kind:"canonical", label:"" },
+    { from:"m2", to:"m3", kind:"canonical", label:"" },
+    { from:"m3", to:"m4", kind:"canonical", label:"" },
+    { from:"m4", to:"m5", kind:"canonical", label:"" },
+    { from:"m5", to:"m9", kind:"intended",  label:"pins loose (never achieved — 0/7)" },
+    { from:"m5", to:"m6", kind:"alt",       label:"pins stuck after repeated attempts → strategy switch" },
+    { from:"m6", to:"m7", kind:"alt", label:"" },
+    { from:"m7", to:"m8", kind:"alt", label:"" },
+    { from:"m8", to:"m9", kind:"alt", label:"all stubs removed" }
+  ],
+
+  /* ---------- Procedural States ---------- */
+  states: {
+    /* M1 — Board Mounted */
+    s1a: { name:"Workbench Ready", ms:"m1", fr:[0,700],
+      world:{ pg:["PCB on bench-mat","helping-hands centered on mat","tools in reach ring"], rg:["pcb @ (−0.12, 0.31, 0) ego","hands-station @ (0.02, 0.28, 0)"], dr:"frames 0–700" },
+      objects:[ {ref:"obj_pcb", pose:"flat on mat", attrs:"header intact", contacts:"mat", role:"work-piece" }, {ref:"obj_hands", pose:"arms splayed", attrs:"clips open", contacts:"mat", role:"fixture"} ],
+      ag:{ actions:[ {id:"a1",verb:"Locate board",actor:"gaze",target:"obj_pcb",role:"enabler",motion:"—"}, {id:"a2",verb:"Pick up board",actor:"hand.left",target:"obj_pcb",role:"driver",motion:"mot/reach_grasp_0032"} ], deps:[{from:"a1",to:"a2",via:["c —"]}], coord:[] },
+      obs:["c_board_in_hand"],
+      exits:[ {expr:[["c_board_in_hand"]], target:"s1b", kind:"canonical"} ],
+      stats:"taken 1/1 demos", conf:0.95 },
+    s1b: { name:"Board In Hand", ms:"m1", fr:[700,1250],
+      world:{ pg:["PCB held-by left hand","clip3 open, aligned to PCB edge"], rg:["pcb @ hand.left frame","clip3 @ (0.04, 0.30, 0.05)"], dr:"frames 700–1250" },
+      objects:[ {ref:"obj_pcb", pose:"in left hand", attrs:"—", contacts:"hand.left", role:"work-piece"}, {ref:"obj_hands", pose:"clip3 presented", attrs:"clip open", contacts:"—", role:"fixture"} ],
+      ag:{ actions:[ {id:"a1",verb:"Align board edge",actor:"hand.left",target:"obj_pcb",role:"enabler",motion:"mot/align_0040"}, {id:"a2",verb:"Seat clip",actor:"hand.right",target:"obj_hands",role:"driver",motion:"mot/clip_close_0041"} ], deps:[{from:"a1",to:"a2",via:["edge aligned"]}], coord:[] },
+      obs:["c_board_clipped"],
+      exits:[ {expr:[["c_board_clipped"]], target:"s1c", kind:"canonical"} ],
+      stats:"taken 1/1", conf:0.93 },
+    s1c: { name:"Board Clipped", ms:"m1", fr:[1250,1350], terminal:true,
+      world:{ pg:["PCB gripped-by clip3","header row faces up"], rg:["pcb @ (0.04, 0.30, 0.07) ego"], dr:"frames 1250–1350" },
+      objects:[ {ref:"obj_pcb", pose:"fixed in clip", attrs:"stable", contacts:"clip3", role:"work-piece"} ],
+      ag:null, obs:["c_board_clipped"],
+      exits:[ {expr:[["milestone complete"]], target:"m2", kind:"canonical", portal:true} ],
+      stats:"—", conf:0.96 },
+
+    /* M2 — Header Spacer Broken */
+    s2a: { name:"Spacer Intact", ms:"m2", fr:[1350,2750],
+      world:{ pg:["7 pins joined by spacer","cutter jaws at spacer segment[i]","board held in hand for access"], rg:["cutters @ hand.right","pcb @ hand.left"], dr:"frames 1350–2750" },
+      objects:[ {ref:"obj_spacer", pose:"on header", attrs:"uncut segments: 6→0", contacts:"pins", role:"target"}, {ref:"obj_cutters", pose:"in right hand", attrs:"—", contacts:"spacer", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Position jaws",actor:"hand.right",target:"obj_spacer",role:"enabler",motion:"mot/position_0055"}, {id:"a2",verb:"Snip segment",actor:"hand.right",target:"obj_spacer",role:"driver",motion:"mot/snip_0056"} ], deps:[{from:"a1",to:"a2",via:["jaws seated on segment"]}], coord:[] },
+      obs:["c_spacer_cut","c_segments_left"],
+      exits:[ {expr:[["c_spacer_cut"],["AND"],["c_segments_left"]], target:"s2a", kind:"loop", note:"next segment"},
+              {expr:[["c_spacer_cut"],["AND NOT"],["c_segments_left"]], target:"s2b", kind:"canonical"} ],
+      stats:"loop taken ≈6×", conf:0.84 },
+    s2b: { name:"Pins Isolated", ms:"m2", fr:[2750,2900], terminal:true,
+      world:{ pg:["each pin mechanically independent","spacer fragments on mat"], rg:["pcb @ hand.left"], dr:"frames 2750–2900" },
+      objects:[ {ref:"obj_pins", pose:"in PCB", attrs:"independent", contacts:"pcb", role:"work-piece"} ],
+      ag:null, obs:["c_spacer_cut"],
+      exits:[ {expr:[["milestone complete"]], target:"m3", kind:"canonical", portal:true} ],
+      stats:"—", conf:0.9 },
+
+    /* M3 — Iron At Temperature */
+    s3a: { name:"Iron Cold", ms:"m3", fr:[2900,3400],
+      world:{ pg:["iron in stand","dial at rest"], rg:["iron @ (0.34, 0.22, 0)"], dr:"frames 2900–3400" },
+      objects:[ {ref:"obj_iron", pose:"in stand", attrs:"power OFF, dial idle", contacts:"stand", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Power on iron",actor:"hand.right",target:"obj_iron",role:"enabler",motion:"mot/switch_0070"}, {id:"a2",verb:"Set dial to 350 °C",actor:"hand.right",target:"obj_iron",role:"driver",motion:"mot/dial_0071"} ], deps:[{from:"a1",to:"a2",via:["c_iron_powered"]}], coord:[], note:"Demonstrator first said 250 °C, then corrected to 350 °C for oxidised joints — the correction, not the slip, is compiled." },
+      obs:["c_iron_powered","c_dial_350"],
+      exits:[ {expr:[["c_iron_powered"],["AND"],["c_dial_350"]], target:"s3b", kind:"canonical"} ],
+      stats:"taken 1/1", conf:0.88 },
+    s3b: { name:"Iron Heating", ms:"m3", fr:[3400,4650], physics:true,
+      world:{ pg:["tip temperature rising","no manipulation"], rg:["iron @ stand"], dr:"frames 3400–4650" },
+      objects:[ {ref:"obj_iron", pose:"in stand", attrs:"heating", contacts:"stand", role:"tool"} ],
+      ag:null,
+      obs:["c_temp_350"],
+      exits:[ {expr:[["c_temp_350"]], target:"s3c", kind:"canonical", note:"physics-driven — no action required"} ],
+      stats:"≈25 s", conf:0.72 },
+    s3c: { name:"Iron At Temperature", ms:"m3", fr:[4650,4700], terminal:true,
+      world:{ pg:["tip ≥ 350 °C sustained"], rg:["iron @ stand"], dr:"frames 4650–4700" },
+      objects:[ {ref:"obj_iron", pose:"in stand", attrs:"350 °C", contacts:"stand", role:"tool"} ],
+      ag:null, obs:["c_temp_350"],
+      exits:[ {expr:[["milestone complete"]], target:"m4", kind:"canonical", portal:true} ],
+      stats:"—", conf:0.72 },
+
+    /* M4 — Pump Primed */
+    s4a: { name:"Pump Unprimed", ms:"m4", fr:[4700,6200],
+      world:{ pg:["pump in left hand","plunger extended"], rg:["pump @ hand.left"], dr:"frames 4700–6200" },
+      objects:[ {ref:"obj_pump", pose:"in left hand", attrs:"unlatched", contacts:"hand.left", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Depress plunger",actor:"hand.left",target:"obj_pump",role:"driver",motion:"mot/prime_0090"} ], deps:[], coord:[] },
+      obs:["c_plunger_latch"],
+      exits:[ {expr:[["c_plunger_latch"]], target:"s4b", kind:"canonical"} ],
+      stats:"taken 1/1", conf:0.89 },
+    s4b: { name:"Pump Primed", ms:"m4", fr:[6200,6350], terminal:true,
+      world:{ pg:["plunger latched, ready to fire"], rg:["pump @ hand.left"], dr:"frames 6200–6350" },
+      objects:[ {ref:"obj_pump", pose:"in left hand", attrs:"latched", contacts:"hand.left", role:"tool"} ],
+      ag:null, obs:["c_plunger_latch"],
+      exits:[ {expr:[["milestone complete"]], target:"m5", kind:"canonical", portal:true} ],
+      stats:"—", conf:0.95 },
+
+    /* M5 — Solder Extraction Attempted (canonical path that FAILS) */
+    s5a: { name:"Joint Blocked", ms:"m5", fr:[6350,7000],
+      world:{ pg:["joint[i] solid","iron tip approaching bottom side","board fixed in clip"], rg:["iron.tip @ (0.05, 0.29, 0.04)","pump @ hand.left"], dr:"frames 6350–7000" },
+      objects:[ {ref:"obj_joints", pose:"bottom side up", attrs:"oxidised", contacts:"pcb", role:"target"}, {ref:"obj_iron", pose:"right hand", attrs:"350 °C", contacts:"→joint", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Place tip on joint",actor:"hand.right",target:"obj_joints",role:"driver",motion:"mot/tip_place_0102"} ], deps:[], coord:[] },
+      obs:["c_tip_on_joint","c_solder_molten"],
+      exits:[ {expr:[["c_solder_molten"]], target:"s5b", kind:"canonical"} ],
+      stats:"entered 7×", conf:0.85 },
+    s5b: { name:"Solder Molten (pump staged)", ms:"m5", fr:[7000,7300],
+      world:{ pg:["joint[i] molten","nozzle converging on joint","iron maintains contact"], rg:["pump.nozzle @ joint[i] − 8 mm"], dr:"frames 7000–7300" },
+      objects:[ {ref:"obj_iron", pose:"on joint", attrs:"heating", contacts:"joint", role:"tool"}, {ref:"obj_pump", pose:"left hand", attrs:"latched", contacts:"—", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Hold iron on joint",actor:"hand.right",target:"obj_joints",role:"stabilizer",motion:"mot/hold_0103"}, {id:"a2",verb:"Seat pump nozzle",actor:"hand.left",target:"obj_joints",role:"enabler",motion:"mot/nozzle_0104"}, {id:"a3",verb:"Fire suction",actor:"hand.left",target:"obj_pump",role:"driver",motion:"mot/trigger_0105"} ],
+           deps:[ {from:"a2",to:"a3",via:["c_nozzle_seated"]}, {from:"a1",to:"a3",via:["c_solder_molten"]} ],
+           coord:["maintain iron contact WHILE seating nozzle (solder must stay molten)"] },
+      obs:["c_nozzle_seated","c_suction_fired"],
+      exits:[ {expr:[["c_suction_fired"]], target:"s5c", kind:"canonical"} ],
+      stats:"entered 7×", conf:0.83 },
+    s5c: { name:"Suction Result", ms:"m5", fr:[7300,13750],
+      world:{ pg:["partial solder removed","pin mobility unchanged"], rg:["—"], dr:"frames 7300–13750 (spans attempts)" },
+      objects:[ {ref:"obj_joints", pose:"—", attrs:"still blocked", contacts:"pcb", role:"target"} ],
+      ag:null,
+      obs:["c_pins_loose","c_joint_blocked","c_attempts_high"],
+      exits:[ {expr:[["c_pins_loose"]], target:"m9", kind:"intended", portal:true, note:"intended success — never observed (0/7)"},
+              {expr:[["c_joint_blocked"],["AND NOT"],["c_attempts_high"]], target:"s5a", kind:"loop", note:"retry next joint — taken 6×"},
+              {expr:[["c_joint_blocked"],["AND"],["c_attempts_high"]], target:"m6", kind:"alt", portal:true, note:"STRATEGY SWITCH → alternative procedure"} ],
+      stats:"retry 6× · switch 1× · success 0×", conf:0.81 },
+
+    /* M6 — Pins Trimmed (alternative branch) */
+    s6a: { name:"Pins Long (board freed)", ms:"m6", fr:[13750,16200],
+      world:{ pg:["board removed from clip for access","cutters flush at pin[i] base"], rg:["pcb @ hand.left","cutters @ hand.right"], dr:"frames 13750–16200" },
+      objects:[ {ref:"obj_pcb", pose:"in left hand", attrs:"unclipped", contacts:"hand.left", role:"work-piece"}, {ref:"obj_cutters", pose:"right hand", attrs:"—", contacts:"pin[i]", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Unclip board",actor:"hand.right",target:"obj_hands",role:"enabler",motion:"mot/unclip_0130"}, {id:"a2",verb:"Snip pin flush",actor:"hand.right",target:"obj_pins",role:"driver",motion:"mot/snip_pin_0131"} ], deps:[{from:"a1",to:"a2",via:["board accessible"]}], coord:[] },
+      obs:["c_pins_trimmed"],
+      exits:[ {expr:[["pin snipped"],["AND"],["pins remain"]], target:"s6a", kind:"loop", note:"next pin — ≈7×"},
+              {expr:[["c_pins_trimmed"]], target:"s6b", kind:"canonical"} ],
+      stats:"loop ≈7×", conf:0.82 },
+    s6b: { name:"All Pins Are Stubs", ms:"m6", fr:[16200,16350], terminal:true,
+      world:{ pg:["each pin ≈ flush stub","header row gone"], rg:["pcb @ hand.left"], dr:"frames 16200–16350" },
+      objects:[ {ref:"obj_pins", pose:"stubs in holes", attrs:"trimmed", contacts:"pcb", role:"work-piece"} ],
+      ag:null, obs:["c_pins_trimmed"],
+      exits:[ {expr:[["milestone complete"]], target:"m7", kind:"alt", portal:true} ],
+      stats:"—", conf:0.88 },
+
+    /* M7 — Flux Applied */
+    s7a: { name:"Joints Dry", ms:"m7", fr:[16350,17250],
+      world:{ pg:["flux tin open","applicator loaded"], rg:["flux tin @ (−0.06, 0.36, 0)"], dr:"frames 16350–17250" },
+      objects:[ {ref:"obj_flux", pose:"open in left hand", attrs:"paste exposed", contacts:"hand.left", role:"consumable"} ],
+      ag:{ actions:[ {id:"a1",verb:"Open flux tin",actor:"hand.left",target:"obj_flux",role:"enabler",motion:"mot/open_tin_0150"}, {id:"a2",verb:"Dab flux on joints",actor:"hand.right",target:"obj_joints",role:"driver",motion:"mot/dab_0151"} ], deps:[{from:"a1",to:"a2",via:["paste accessible"]}], coord:[] },
+      obs:["c_flux_applied"],
+      exits:[ {expr:[["c_flux_applied"]], target:"s7b", kind:"canonical"} ],
+      stats:"taken 1/1", conf:0.86 },
+    s7b: { name:"Joints Fluxed", ms:"m7", fr:[17250,17400], terminal:true,
+      world:{ pg:["all 7 joints coated"], rg:["—"], dr:"frames 17250–17400" },
+      objects:[ {ref:"obj_joints", pose:"—", attrs:"fluxed", contacts:"pcb", role:"target"} ],
+      ag:null, obs:["c_flux_applied"],
+      exits:[ {expr:[["milestone complete"]], target:"m8", kind:"alt", portal:true} ],
+      stats:"—", conf:0.9 },
+
+    /* M8 — Pins Extracted Individually (showcase: concurrent Action Group) */
+    s8a: { name:"Board Re-Clipped, Stubs Present", ms:"m8", fr:[19200,19550],
+      world:{ pg:["PCB back in clip3","7 fluxed stubs","iron + pliers staged"], rg:["pcb @ clip3","iron @ hand.right","pliers @ hand.left"], dr:"frames 19200–19550" },
+      objects:[ {ref:"obj_pcb", pose:"in clip", attrs:"stable", contacts:"clip3", role:"work-piece"} ],
+      ag:{ actions:[ {id:"a1",verb:"Clip board",actor:"hand.right",target:"obj_hands",role:"driver",motion:"mot/clip_0160"} ], deps:[], coord:[] },
+      obs:["c_board_clipped"],
+      exits:[ {expr:[["c_board_clipped"]], target:"s8b", kind:"canonical"} ],
+      stats:"taken 1/1", conf:0.9 },
+    s8b: { name:"Joint Heating + Pin Pulling", ms:"m8", fr:[19550,24200], showcase:true,
+      world:{ pg:["iron on joint[i] (bottom)","pliers gripping stub[i] (top)","two-handed opposition through the board"], rg:["iron.tip @ joint[i]","pliers.tip @ stub[i]"], dr:"frames 19550–24200 (per-pin cycles)" },
+      objects:[ {ref:"obj_iron", pose:"right hand, on joint", attrs:"350 °C", contacts:"joint[i]", role:"tool"}, {ref:"obj_pliers", pose:"left hand, on stub", attrs:"—", contacts:"stub[i]", role:"tool"}, {ref:"obj_pins", pose:"stub[i] in hole", attrs:"heated", contacts:"hole walls", role:"target"} ],
+      ag:{ actions:[ {id:"a1",verb:"Heat joint",actor:"hand.right (iron)",target:"obj_joints",role:"enabler",motion:"mot/heat_0170"},
+                     {id:"a2",verb:"Grip pin stub",actor:"hand.left (pliers)",target:"obj_pins",role:"enabler",motion:"mot/grip_0171"},
+                     {id:"a3",verb:"Pull pin out",actor:"hand.left (pliers)",target:"obj_pins",role:"driver",motion:"mot/pull_0172"} ],
+           deps:[ {from:"a1",to:"a3",via:["c_solder_molten"]}, {from:"a2",to:"a3",via:["c_grip_ok"]} ],
+           coord:["MAINTAIN heat (a1) WHILE pulling (a3) — solder must stay molten through extraction","a1 and a2 have no mutual dependency → run concurrently (two hands)"] },
+      obs:["c_solder_molten","c_grip_ok","c_pin_out","c_stubs_left"],
+      exits:[ {expr:[["c_pin_out"],["AND"],["c_stubs_left"]], target:"s8b", kind:"loop", note:"next pin — taken ≈11× (incl. re-grips)"},
+              {expr:[["c_pin_out"],["AND NOT"],["c_stubs_left"]], target:"s8c", kind:"canonical"} ],
+      stats:"loop ≈11× over 7 pins", conf:0.87 },
+    s8c: { name:"All Stubs Removed", ms:"m8", fr:[24200,24400], terminal:true,
+      world:{ pg:["no metal above board plane","holes still clogged with solder"], rg:["pcb @ clip3"], dr:"frames 24200–24400" },
+      objects:[ {ref:"obj_pcb", pose:"in clip", attrs:"pin-free", contacts:"clip3", role:"work-piece"} ],
+      ag:null, obs:["c_pin_out"],
+      exits:[ {expr:[["milestone complete"]], target:"m9", kind:"alt", portal:true} ],
+      stats:"—", conf:0.92 },
+
+    /* M9 — Through-Holes Cleared */
+    s9a: { name:"Hole Clogged", ms:"m9", fr:[24400,25100],
+      world:{ pg:["hole[i] filled with residual solder","iron tip entering hole","pump re-primed"], rg:["iron.tip @ hole[i]"], dr:"frames 24400–25100" },
+      objects:[ {ref:"obj_joints", pose:"—", attrs:"clogged", contacts:"pcb", role:"target"}, {ref:"obj_pump", pose:"left hand", attrs:"latched", contacts:"—", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Insert tip in hole",actor:"hand.right",target:"obj_joints",role:"driver",motion:"mot/tip_hole_0190"}, {id:"a2",verb:"Prime pump",actor:"hand.left",target:"obj_pump",role:"enabler",motion:"mot/prime_0191"} ], deps:[], coord:["a1 ∥ a2 — independent, run concurrently"] },
+      obs:["c_solder_molten"],
+      exits:[ {expr:[["c_solder_molten"]], target:"s9b", kind:"canonical"} ],
+      stats:"entered ≈7×", conf:0.8 },
+    s9b: { name:"Solder Molten In Hole", ms:"m9", fr:[25100,25350],
+      world:{ pg:["hole[i] molten","nozzle seated beside tip"], rg:["pump.nozzle @ hole[i]"], dr:"frames 25100–25350" },
+      objects:[ {ref:"obj_pump", pose:"nozzle on hole", attrs:"latched", contacts:"pcb", role:"tool"} ],
+      ag:{ actions:[ {id:"a1",verb:"Seat nozzle",actor:"hand.left",target:"obj_joints",role:"enabler",motion:"mot/nozzle_0192"}, {id:"a2",verb:"Fire suction",actor:"hand.left",target:"obj_pump",role:"driver",motion:"mot/trigger_0193"} ], deps:[{from:"a1",to:"a2",via:["c_nozzle_seated"]}], coord:["swap iron out as nozzle seats — hole must stay molten (< 1 s window)"] },
+      obs:["c_suction_fired","c_hole_clear","c_holes_left"],
+      exits:[ {expr:[["c_hole_clear"],["AND"],["c_holes_left"]], target:"s9a", kind:"loop", note:"next hole — ≈6×"},
+              {expr:[["NOT c_hole_clear"]], target:"s9a", kind:"loop", note:"re-melt same hole"},
+              {expr:[["c_hole_clear"],["AND NOT"],["c_holes_left"]], target:"s9c", kind:"canonical"} ],
+      stats:"loops ≈8× total", conf:0.79 },
+    s9c: { name:"All Holes Clear — Task Complete", ms:"m9", fr:[29900,30081], terminal:true,
+      world:{ pg:["all 7 through-holes open","board ready for new component"], rg:["pcb @ clip3"], dr:"frames 29900–30081" },
+      objects:[ {ref:"obj_pcb", pose:"in clip", attrs:"rework-ready", contacts:"clip3", role:"work-piece"} ],
+      ag:null, obs:["c_hole_clear"],
+      exits:[],
+      stats:"task success 1/1", conf:0.88 }
+  }
+};
+
+/* ================================================================
+   Viewer
+   ================================================================ */
+const $ = s => document.querySelector(s);
+const TOTAL_FRAMES = 30081;
+let cy = null;
+let inspected = null;                            // state id currently in the inspector
+let expanded = { ms:new Set(), st:new Set() };   // expansion state of the unified graph
+
+/* ---------- Schema glossary (v0.9) — powers every (i) tooltip ---------- */
+const GLOSSARY = {
+  state:      "A Procedural State — a stable phase of execution spanning a segment of time (not a single frame). The only node type in the backbone: every node is a world state; there are no action, recovery or control nodes.",
+  milestone:  "A Milestone — a semantic procedural objective that summarizes a completed Local Execution Graph. Milestones are not extracted directly; they emerge through semantic compression over reconstructed execution graphs.",
+  frameRange: "Canonical temporal reference: the interval of the source demonstration this state summarizes. Timestamps and duration are always derived from it — never stored separately.",
+  world:      "What the world looks like during this procedural phase. May summarize many frames. Organized into three purpose-based geometry layers (named for purpose, not quality).",
+  pg:         "Procedural Geometry — symbolic spatial relations and the contact graph. Always stored in the state; this is the layer procedures actually reason over.",
+  rg:         "Reference Geometry — egocentric object poses (relative to the demonstrator's viewpoint — the PMG is egocentric). Anchors localization and execution.",
+  dr:         "Dense Reconstruction — point clouds / splats / meshes are NOT embedded in the graph. They live in a demonstration-indexed store and are referenced via Frame Range, so the PMG stays a knowledge graph, not a 3D database.",
+  objects:    "This state's Object Instances. Identity is global — the task-level Object Registry holds class, intrinsics, affordances and canonical geometry exactly once per physical object. The state stores only what varies here.",
+  o_ref:      "Reference into the task-level Object Registry ('Kettle-1 exists exactly once per task'). Explicit identity is what State Identity and demonstration merging depend on.",
+  o_pose:     "Egocentric pose of the object during this state.",
+  o_attrs:    "Articulation / state attributes that vary over time (lid open, dial at 350 °C).",
+  o_contacts: "What this object is touching in this state — an edge in the contact graph.",
+  o_role:     "The part the object plays in this state: work-piece, tool, target, fixture or consumable.",
+  ag:         "Action Group — the intentional operations of this state, structured as a partial-order dependency DAG. Optional: a physics-driven state owns none. Motion belongs to Actions (as references), never to graph edges.",
+  dep:        "Dependency edges, NOT temporal edges: an action cannot begin until the conditions produced by its parent action(s) hold. Actions with no edge between them may run concurrently or in any order — so different demonstrated orders compile into the SAME group.",
+  coord:      "Coordination constraints — genuinely simultaneous cooperation between actions (maintain-A-while-doing-B). This is where timing synchronization between parallel actions lives.",
+  a_actor:    "Which effector performs the action — left/right hand, or a hand holding a tool.",
+  a_role:     "driver = produces the world change · enabler = makes it possible · stabilizer = maintains a required condition while others act.",
+  a_motion:   "Reference to the recorded motion segment — a pointer only. Motion generation and controllers remain external execution contracts, outside the graph.",
+  obs:        "Observable Conditions — symbolic, verifiable evidence that the world has changed. Not procedural steps: the engine performs the Action Group and continuously observes whether these became true.",
+  predicate:  "A (subject · relation · object/value) triple. The target may be another object (Cup on Table) or a literal value (Temperature > 95 °C).",
+  qualifier:  "Temporal qualifier — instant, sustained ≥ t, or within t. This is also how temporal constraints like 'hold for 2 s' are expressed: time is just another observable.",
+  contract:   "Execution Contract — HOW a condition is verified (method, tolerance, evidence, confidence) lives OUTSIDE the graph, keyed by condition id. This keeps the memory perception-agnostic; the Perception Encoder fills it later.",
+  exits:      "Exit Criteria — boolean expressions over Observable Condition ids, each mapped to a target state. The complete transition system: retries, alternatives and recovery are just loops and branches here; nothing in the graph says 'this is recovery'.",
+  stats:      "Traversal statistics accumulated across demonstrations — how often each state was entered and each exit taken.",
+  conf:       "Compiler confidence that this state was segmented and reconstructed correctly. Uniform metadata block: {confidence, provenance, support}.",
+  registry:   "Task-level Object Registry — one entry per physical object. Identity is global, state is local: per-state Object Instances reference these ids and add only what varies.",
+  aff:        "Affordances — what the object supports procedurally (graspable, cuttable, heatable…). Intrinsic, so they live in the registry, not in states."
+};
+function info(key){
+  const g = GLOSSARY[key];
+  return g ? `<span class="info" data-tip="${g.replace(/"/g,"&quot;")}">i</span>` : "";
+}
+function ttip(label, key){
+  const g = GLOSSARY[key];
+  return g ? `<b data-tip="${g.replace(/"/g,"&quot;")}">${label}</b>` : `<b>${label}</b>`;
+}
+
+function stateImg(sid, k){ return `frames/${sid}_${k}.jpg`; }
+function stripFrame(s, k){ const f = { a:0.15, b:0.5, c:0.85 }[k]; return Math.round(s.fr[0] + (s.fr[1]-s.fr[0]) * f); }
+function lightbox(src, cap){
+  const lb = $("#lightbox");
+  lb.querySelector("img").src = src;
+  lb.querySelector(".cap").textContent = cap;
+  lb.classList.add("open");
+}
+
+function fmtT(fr){ const s = Math.round(fr / FPS); return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`; }
+function frLabel(fr){ return `frames ${fr[0]}–${fr[1]}  (${fmtT(fr[0])}–${fmtT(fr[1])})`; }
+function msById(id){ return PMG_DATA.milestones.find(m => m.id === id); }
+function condText(id){
+  const c = PMG_DATA.conditions[id];
+  return c ? c.d : id.replace(/^c_/,"").replace(/_/g," ");
+}
+function exprText(expr){ return expr.map(part => Array.isArray(part) ? part.map(p => PMG_DATA.conditions[p] ? condText(p) : p).join(" ") : part).join(" "); }
+
+if (typeof cytoscape === "undefined") {
+  document.getElementById("main").style.display = "none";
+  document.getElementById("cdnerr").style.display = "block";
+} else {
+  if (typeof cytoscapeDagre !== "undefined") cytoscape.use(cytoscapeDagre);
+  boot();
+}
+
+function baseStyle(){
+  return [
+    { selector:"node", style:{
+        "background-color":"#1e2a44", "border-width":1.5, "border-color":"#3a4d75",
+        "label":"data(label)", "color":"#dce6f5", "font-size":"11px",
+        "text-wrap":"wrap", "text-max-width":"120px", "text-valign":"center", "text-halign":"center",
+        "shape":"round-rectangle", "width":"140px", "height":"56px", "padding":"6px" } },
+    { selector:"node[img]", style:{
+        "background-image":"data(img)", "background-fit":"cover", "background-image-opacity":0.5,
+        "text-background-color":"#0b1019", "text-background-opacity":0.72,
+        "text-background-padding":"3px", "text-background-shape":"round-rectangle" } },
+    { selector:"node.state", style:{ "width":"150px", "height":"84px" } },
+    { selector:"node.milestone", style:{ "width":"160px", "height":"90px", "font-size":"11.5px" } },
+    { selector:"node.alt-ms", style:{ "border-color":"#e6a23c" } },
+    { selector:"node.physics", style:{ "background-color":"#13202f", "border-style":"dashed", "border-color":"#4ec9a0" } },
+    { selector:"node.terminal", style:{ "border-width":2.5 } },
+    { selector:"node.ms-open", style:{
+        "background-color":"#121a2c", "background-opacity":0.55, "border-color":"#3a4d75", "border-width":1.5,
+        "shape":"round-rectangle", "text-valign":"top", "text-halign":"center", "font-size":"11px",
+        "color":"#8fa3c2", "padding":"30px", "text-margin-y":-8, "text-max-width":"640px" } },
+    { selector:"node.ms-open.alt-ms", style:{ "border-color":"#8f6a25" } },
+    { selector:"node.st-open", style:{
+        "background-color":"#18233a", "background-opacity":0.7, "border-color":"#5b8dee", "border-width":1.5,
+        "shape":"round-rectangle", "text-valign":"top", "text-halign":"center", "font-size":"10px",
+        "color":"#aebfdd", "padding":"22px", "text-margin-y":-6, "text-max-width":"460px" } },
+    { selector:"node.action", style:{
+        "background-color":"#223052", "border-color":"#3a4d75", "border-width":1,
+        "width":"128px", "height":"48px", "font-size":"9.5px", "text-max-width":"112px" } },
+    { selector:"node.showcase", style:{ "border-color":"#5b8dee", "border-width":2.5 } },
+    { selector:"node:selected", style:{ "border-color":"#ffffff", "border-width":3 } },
+    { selector:"node.obj-hit", style:{ "background-color":"#2b3f2f", "border-color":"#4ec9a0", "border-width":2.5 } },
+    { selector:"edge", style:{
+        "curve-style":"bezier", "target-arrow-shape":"triangle", "arrow-scale":1.1,
+        "width":2, "line-color":"#5b8dee", "target-arrow-color":"#5b8dee",
+        "label":"data(label)", "font-size":"9.5px", "color":"#8fa3c2",
+        "text-wrap":"wrap", "text-max-width":"150px", "text-background-color":"#0f1420",
+        "text-background-opacity":0.85, "text-background-padding":"2px" } },
+    { selector:"edge.alt", style:{ "line-color":"#e6a23c", "target-arrow-color":"#e6a23c" } },
+    { selector:"edge.loop", style:{ "line-color":"#e0654f", "target-arrow-color":"#e0654f", "curve-style":"bezier", "control-point-step-size":70 } },
+    { selector:"edge.selfloop", style:{ "loop-direction":"0deg", "loop-sweep":"-40deg" } },
+    { selector:"edge.intended", style:{ "line-color":"#8fa3c2", "target-arrow-color":"#8fa3c2", "line-style":"dashed" } },
+    { selector:"edge.dep", style:{
+        "line-color":"#e6a23c", "target-arrow-color":"#e6a23c", "width":1.6,
+        "font-size":"8.5px", "text-max-width":"120px" } }
+  ];
+}
+
+function boot(){
+  cy = cytoscape({ container: $("#cy"), style: baseStyle(), wheelSensitivity: 0.25 });
+  cy.on("tap", "node", evt => {
+    const n = evt.target, id = n.id();
+    if (n.hasClass("milestone")) { expanded.ms.add(id); renderGraph(id); }
+    else if (n.hasClass("ms-open")) { collapseMilestone(id); }
+    else if (n.hasClass("state")) {
+      if (PMG_DATA.states[id].ag) expanded.st.add(id);
+      renderGraph(id); openInspector(id);
+    }
+    else if (n.hasClass("st-open")) { expanded.st.delete(id); renderGraph(id); openInspector(id); }
+    else if (n.hasClass("action")) { openInspector(id.split("__")[0]); }
+  });
+  cy.on("tap", evt => { if (evt.target === cy) closeInspector(); });
+  $("#btnLegend").onclick = () => $("#legend").classList.toggle("open");
+  $("#btnRegistry").onclick = () => toggleRegistry();
+  $("#btnCollapse").onclick = collapseAll;
+  renderRegistry();
+  setTitle("Task — one graph, expanding hierarchy", PMG_DATA.task.name);
+  setCrumbs([{ label: PMG_DATA.task.name, current: true }]);
+  $("#hint").textContent = "Click a milestone to expand its states · click a state to expand its Action Group + schema · click a container's title area to collapse it";
+  renderGraph();
+}
+
+/* ---------- Unified expanding graph: Task ⊃ Milestones ⊃ States ⊃ Actions ---------- */
+function actionRanks(ag){
+  const rank = {}; ag.actions.forEach(a => rank[a.id] = 0);
+  let changed = true, guard = 0;
+  while (changed && guard++ < 60){
+    changed = false;
+    ag.deps.forEach(d => { if (rank[d.to] < rank[d.from] + 1){ rank[d.to] = rank[d.from] + 1; changed = true; } });
+  }
+  return rank;
+}
+
+function renderGraph(focusId){
+  const els = [], pos = {};
+  const GAP = 85, MSW = 160, STW = 150, STGAP = 62, ACOLW = 158, AROWH = 66;
+  let X = 0;
+
+  PMG_DATA.milestones.forEach(m => {
+    const altCls = m.kind === "alternative" ? " alt-ms" : "";
+    if (!expanded.ms.has(m.id)) {
+      els.push({ data:{ id:m.id, label:`${m.name}\n${m.states.length} states · ${fmtT(m.fr[0])}–${fmtT(m.fr[1])} ⊕`,
+                        img:stateImg(m.states[Math.min(1, m.states.length-1)], "b") },
+                 classes:"milestone" + altCls });
+      pos[m.id] = { x: X + MSW/2, y: 0 };
+      X += MSW + GAP;
+    } else {
+      els.push({ data:{ id:m.id, label:`▣ MILESTONE · ${m.name} · ${fmtT(m.fr[0])}–${fmtT(m.fr[1])}   (click here to collapse ⊖)` },
+                 classes:"ms-open" + altCls });
+      X += 40;
+      m.states.forEach(sid => {
+        const s = PMG_DATA.states[sid];
+        const stOpen = expanded.st.has(sid) && s.ag;
+        if (!stOpen) {
+          const nAct = s.ag ? s.ag.actions.length : 0;
+          const badge = s.ag ? `${nAct} action${nAct>1?"s":""} ⊕` : "∅ physics/observe";
+          els.push({ data:{ id:sid, parent:m.id, label:`${s.name}\n${badge}`, img:stateImg(sid, "b") },
+                     classes:"state " + (s.physics?"physics ":"") + (s.terminal?"terminal ":"") + (s.showcase?"showcase":"") });
+          pos[sid] = { x: X + STW/2, y: 0 };
+          X += STW + STGAP;
+        } else {
+          els.push({ data:{ id:sid, parent:m.id, label:`▸ STATE · ${s.name} · Action Group DAG (click here to collapse ⊖)` },
+                     classes:"st-open" + (s.showcase ? " showcase" : "") });
+          const rank = actionRanks(s.ag);
+          const nCols = Math.max(...Object.values(rank)) + 1;
+          const perRank = {};
+          s.ag.actions.forEach(a => { (perRank[rank[a.id]] = perRank[rank[a.id]] || []).push(a); });
+          s.ag.actions.forEach(a => {
+            const r = rank[a.id], col = perRank[r], idx = col.indexOf(a);
+            els.push({ data:{ id:sid+"__"+a.id, parent:sid, label:`${a.verb}\n${a.actor} · ${a.role}` }, classes:"action" });
+            pos[sid+"__"+a.id] = { x: X + r*ACOLW + 75, y: (idx - (col.length-1)/2) * AROWH };
+          });
+          s.ag.deps.forEach((d,i) => {
+            els.push({ data:{ id:sid+"__d"+i, source:sid+"__"+d.from, target:sid+"__"+d.to,
+                              label:"requires: " + d.via.map(v => PMG_DATA.conditions[v] ? condText(v) : v).join(" + ") },
+                       classes:"dep" });
+          });
+          X += nCols*ACOLW + STGAP + 40;
+        }
+      });
+      X += 40 + GAP;
+    }
+  });
+
+  /* spine edges — only from collapsed milestones (expanded ones route through their terminal-state exits) */
+  PMG_DATA.spine.forEach((e,i) => {
+    if (expanded.ms.has(e.from)) return;
+    els.push({ data:{ id:"sp"+i, source:e.from, target:e.to, label:e.label }, classes:e.kind });
+  });
+  /* state-level exit edges for expanded milestones (portal exits land on real milestone nodes) */
+  let ei = 0;
+  PMG_DATA.milestones.forEach(m => {
+    if (!expanded.ms.has(m.id)) return;
+    m.states.forEach(sid => {
+      PMG_DATA.states[sid].exits.forEach(x => {
+        const cls = (x.kind === "loop") ? ("loop" + (x.target === sid ? " selfloop" : "")) : x.kind;
+        els.push({ data:{ id:"xe"+(ei++), source:sid, target:x.target, label:(x.note || exprText(x.expr)) }, classes:cls });
+      });
+    });
+  });
+
+  cy.elements().remove();
+  cy.add(els);
+  cy.layout({ name:"preset", positions: n => pos[n.id()], fit:false }).run();
+  requestAnimationFrame(() => {
+    cy.resize();
+    const f = focusId && cy.getElementById(focusId);
+    if (f && f.length) cy.fit(f, 120); else fitView();
+  });
+  if (inspected && cy.getElementById(inspected).length) cy.getElementById(inspected).select();
+  renderTimeline(inspected);
+}
+
+function collapseMilestone(mid){
+  expanded.ms.delete(mid);
+  msById(mid).states.forEach(sid => expanded.st.delete(sid));
+  if (inspected && PMG_DATA.states[inspected] && PMG_DATA.states[inspected].ms === mid) closeInspector();
+  renderGraph(mid);
+}
+function collapseAll(){
+  expanded.ms.clear(); expanded.st.clear();
+  closeInspector();
+  renderGraph();
+}
+function gotoMilestone(mid){ expanded.ms.add(mid); renderGraph(mid); }
+
+/* ---------- State inspector (full v0.9 schema with glossary tooltips) ---------- */
+function openInspector(sid){
+  const s = PMG_DATA.states[sid]; if (!s) return;
+  inspected = sid;
+  const m = msById(s.ms);
+  let rerender = false;
+  if (!expanded.ms.has(s.ms)) { expanded.ms.add(s.ms); rerender = true; }
+
+  const R = [];
+  R.push(`<button class="closebtn" onclick="closeInspector()">×</button>`);
+  R.push(`<h2>${s.name} ${info("state")}</h2>`);
+  R.push(`<div class="sub">Procedural State · <span class="tt" data-tip="${GLOSSARY.milestone.replace(/"/g,"&quot;")}">${m.name}</span></div>`);
+  R.push(`<div>${s.physics?'<span class="badge physics">physics-driven · no actions</span>':""}${s.showcase?'<span class="badge">showcase state</span>':""}${s.terminal?'<span class="badge">milestone-terminal</span>':""}</div>`);
+
+  R.push(`<div class="strip">` + ["a","b","c"].map(k => {
+    const f = stripFrame(s, k);
+    const src = stateImg(sid, k);
+    const cap = `${s.name} — frame ${f} (${fmtT(f)})`;
+    return `<figure><img src="${src}" loading="lazy" onclick="lightbox('${src}','${cap.replace(/'/g,"")}')" onerror="this.parentElement.style.display='none'"><figcaption>${fmtT(f)}</figcaption></figure>`;
+  }).join("") + `</div>`);
+
+  R.push(`<div class="sec"><h4>Frame Range ${info("frameRange")}</h4><div class="kv mono">${frLabel(s.fr)}</div>
+          <div class="kv" style="color:var(--dim);font-size:11.5px">canonical temporal reference — duration ${(Math.round((s.fr[1]-s.fr[0])/FPS))}s derived, not stored</div></div>`);
+
+  R.push(`<div class="sec"><h4>World Representation — Geometry Layers ${info("world")}</h4>`);
+  R.push(`<div class="kv">${ttip("Procedural Geometry","pg")} (relations + contacts)</div><ul class="plain">` + s.world.pg.map(x=>`<li>${x}</li>`).join("") + `</ul>`);
+  R.push(`<div class="kv" style="margin-top:6px">${ttip("Reference Geometry","rg")} (egocentric poses)</div><ul class="plain">` + s.world.rg.map(x=>`<li class="mono">${x}</li>`).join("") + `</ul>`);
+  R.push(`<div class="kv" style="margin-top:6px">${ttip("Dense Reconstruction","dr")} (by reference)</div><div class="kv mono" style="padding-left:14px">demo-store["${PMG_DATA.task.id}"] @ ${s.world.dr}</div></div>`);
+
+  R.push(`<div class="sec"><h4>Object Instances (→ task registry) ${info("objects")}</h4><table class="objs">`);
+  s.objects.forEach(o => {
+    R.push(`<tr><td><span class="tt" data-tip="${GLOSSARY.o_ref.replace(/"/g,"&quot;")}">${o.ref}</span></td>
+      <td>${ttip("pose","o_pose")} ${o.pose}<br>${ttip("attrs","o_attrs")} ${o.attrs} · ${ttip("contacts","o_contacts")} ${o.contacts}<br>${ttip("role","o_role")} ${o.role}</td></tr>`);
+  });
+  R.push(`</table></div>`);
+
+  R.push(`<div class="sec"><h4>Action Group ${s.ag ? "— dependency DAG" : ""} ${info("ag")}</h4>`);
+  if (s.ag) {
+    R.push(`<div class="kv" style="color:var(--dim);font-size:11.5px;margin-bottom:6px">⊕ expanded inline in the main graph — dependency edges ${info("dep")} are shown in amber there</div>`);
+    s.ag.actions.forEach(a => {
+      const deps = s.ag.deps.filter(d => d.to === a.id);
+      R.push(`<div class="cond"><b>${a.verb}</b> <span class="pid">${a.id}</span>
+        <div class="kv">${ttip("actor","a_actor")}: ${a.actor} · ${ttip("role","a_role")}: ${a.role} · target: <span class="mono">${a.target}</span></div>
+        <div class="kv">${ttip("motion ref","a_motion")}: <span class="mono">${a.motion}</span></div>` +
+        deps.map(d => {
+          const pv = (s.ag.actions.find(p => p.id === d.from) || {}).verb || d.from;
+          return `<div class="kv" style="color:var(--alt)">⇠ cannot begin until <b style="border:none">${pv}</b> yields: ${d.via.map(v => PMG_DATA.conditions[v] ? condText(v) : v).join(" + ")}</div>`;
+        }).join("") + `</div>`);
+    });
+    if (s.ag.coord && s.ag.coord.length) {
+      R.push(`<div class="kv" style="margin-top:8px">${ttip("Coordination constraints","coord")}</div>`);
+      s.ag.coord.forEach(c => R.push(`<div class="coord">${c}</div>`));
+    }
+    if (s.ag.note) R.push(`<div class="note">${s.ag.note}</div>`);
+  } else {
+    R.push(`<div class="kv" style="color:var(--physics)">None — the world evolves by physics or observation only. Action Groups are optional.</div>`);
+  }
+  R.push(`</div>`);
+
+  R.push(`<div class="sec"><h4>Observable Conditions (symbolic) ${info("obs")}</h4>`);
+  s.obs.forEach(cid => {
+    const c = PMG_DATA.conditions[cid]; if (!c) return;
+    const ct = PMG_DATA.contracts[cid];
+    R.push(`<div class="cond"><span class="pid">${cid}</span> — ${c.d}
+      <div class="pred" data-tip="${GLOSSARY.predicate.replace(/"/g,"&quot;")}">${c.p[0]} <span class="rel">${c.p[1]}</span> ${c.p[2]}</div>
+      <div class="qual" data-tip="${GLOSSARY.qualifier.replace(/"/g,"&quot;")}">qualifier: ${c.q}</div>` +
+      (ct ? `<details class="contract"><summary>Execution Contract (outside the graph) ${info("contract")}</summary>
+        <div class="body"><div><b>verify:</b> ${ct.m}</div><div><b>tolerance:</b> ${ct.tol}</div>
+        <div><b>evidence:</b> ${ct.ev}</div><div><b>confidence:</b> ${ct.conf}</div></div></details>`
+      : `<details class="contract"><summary>Execution Contract ${info("contract")}</summary><div class="body">unfilled — awaiting Perception Encoder</div></details>`) + `</div>`);
+  });
+  R.push(`</div>`);
+
+  R.push(`<div class="sec"><h4>Exit Criteria (boolean expr → target state) ${info("exits")}</h4>`);
+  if (!s.exits.length) R.push(`<div class="kv">none — terminal state of the task.</div>`);
+  s.exits.forEach(x => {
+    const tState = PMG_DATA.states[x.target]; const tMs = msById(x.target);
+    const tLabel = x.portal ? ("milestone: " + (tMs ? tMs.name : x.target)) : (tState ? tState.name : x.target);
+    R.push(`<div class="exit ${x.kind === "loop" ? "loop" : (x.kind === "alt" ? "alt" : "")}">
+      <div class="expr">${x.expr.map(p => Array.isArray(p) ? p.map(q => PMG_DATA.conditions[q]?`<span title="${condText(q)}">${q}</span>`:`<span class="op">${q}</span>`).join(" ") : p).join(" ")}</div>
+      ${x.note ? `<div style="font-size:11px;color:var(--dim);margin-bottom:5px">${x.note}</div>` : ""}
+      <button class="goto" onclick='${x.portal ? `gotoMilestone("${x.target}")` : `openInspector("${x.target}")`}'>→ ${tLabel}</button>
+    </div>`);
+  });
+  R.push(`</div>`);
+
+  R.push(`<div class="sec"><h4>Statistics & Confidence ${info("stats")}</h4>
+    <div class="kv">${ttip("stats","stats")} ${s.stats}</div>
+    <div class="kv">${ttip("confidence","conf")} ${s.conf}</div>
+    <div class="confbar"><div style="width:${s.conf*100}%"></div></div></div>`);
+
+  $("#insInner").innerHTML = R.join("");
+  $("#inspector").classList.add("open");
+  if (rerender) renderGraph(sid);
+  else {
+    cy.nodes().unselect();
+    const n = cy.getElementById(sid);
+    if (n.length) n.select();
+    renderTimeline(sid);
+  }
+  setCrumbs([ {label:PMG_DATA.task.name, go:collapseAll},
+              {label:m.name, go:()=>gotoMilestone(m.id)},
+              {label:s.name, current:true} ]);
+}
+
+function closeInspector(){
+  const wasOpen = $("#inspector").classList.contains("open");
+  $("#inspector").classList.remove("open");
+  inspected = null;
+  if (cy) cy.nodes().unselect();
+  renderTimeline(null);
+  if (wasOpen) setTimeout(fitView, 200);
+  setCrumbs([{ label: PMG_DATA.task.name, current: true }]);
+}
+
+/* ---------- Registry ---------- */
+function renderRegistry(){
+  const R = [`<button class="closebtn" onclick="toggleRegistry()">×</button>`,
+             `<h2>Object Registry ${info("registry")}</h2><div class="sub">task-level · identity is global, state is local</div>`];
+  PMG_DATA.registry.forEach(o => {
+    R.push(`<div class="robj" data-oid="${o.id}" onclick="highlightObject('${o.id}', this)">
+      <span class="rcls">${o.cls}</span><span class="rid">${o.id}</span>
+      <div>${o.name}</div>
+      <div class="raff">${o.intrinsic} · geometry: <span class="mono">${o.geo}</span></div>
+      <div class="raff">${ttip("affordances","aff")}: ${o.aff.join(", ")}</div></div>`);
+  });
+  R.push(`<div class="note">${PMG_DATA.registryNote}</div>`);
+  $("#registry").innerHTML = R.join("");
+}
+function toggleRegistry(){ $("#registry").classList.toggle("open"); }
+function highlightObject(oid, el){
+  document.querySelectorAll(".robj").forEach(x => x.classList.remove("sel"));
+  cy.nodes().removeClass("obj-hit");
+  if (el.dataset.on === "1") { el.dataset.on = ""; return; }
+  document.querySelectorAll(".robj").forEach(x => x.dataset.on = "");
+  el.classList.add("sel"); el.dataset.on = "1";
+  cy.nodes().forEach(n => {
+    const s = PMG_DATA.states[n.id()];
+    if (s && s.objects.some(o => o.ref === oid)) n.addClass("obj-hit");
+  });
+}
+
+/* ---------- shared ---------- */
+function renderTimeline(curSid){
+  const tr = $("#tlTrack"); tr.innerHTML = "";
+  PMG_DATA.milestones.forEach(m => {
+    const seg = document.createElement("div");
+    seg.className = "tl-seg " + m.kind + (expanded.ms.has(m.id) ? " active" : "");
+    seg.style.left = (m.fr[0] / TOTAL_FRAMES * 100) + "%";
+    seg.style.width = Math.max(0.4, (m.fr[1] - m.fr[0]) / TOTAL_FRAMES * 100) + "%";
+    seg.title = `${m.name} · ${fmtT(m.fr[0])}–${fmtT(m.fr[1])}`;
+    seg.onclick = () => gotoMilestone(m.id);
+    tr.appendChild(seg);
+  });
+  PMG_DATA.milestones.forEach(m => {
+    if (!expanded.ms.has(m.id)) return;
+    m.states.forEach(sid => {
+      const s = PMG_DATA.states[sid];
+      const t = document.createElement("div");
+      t.className = "tl-state" + (sid === curSid ? " cur" : "");
+      t.style.left = (s.fr[0] / TOTAL_FRAMES * 100) + "%";
+      t.style.width = Math.max(0.25, (s.fr[1] - s.fr[0]) / TOTAL_FRAMES * 100) + "%";
+      t.title = `${s.name} · ${frLabel(s.fr)}`;
+      t.onclick = ev => { ev.stopPropagation(); openInspector(sid); };
+      tr.appendChild(t);
+    });
+  });
+}
+function fitView(){
+  if (!cy) return;
+  cy.resize(); cy.fit(undefined, 55);
+  if (cy.zoom() < 0.55) { cy.zoom(0.55); cy.center(); }
+}
+window.addEventListener("resize", () => requestAnimationFrame(fitView));
+function setTitle(t, n){ $("#viewtitle .t").textContent = t; $("#viewtitle .n").textContent = n; }
+function setCrumbs(items){
+  const el = $("#crumbs"); el.innerHTML = "";
+  items.forEach((it, i) => {
+    if (i) { const sep = document.createElement("span"); sep.className = "crumb-sep"; sep.textContent = "›"; el.appendChild(sep); }
+    const c = document.createElement("span");
+    c.className = "crumb" + (it.current ? " current" : "");
+    c.textContent = it.label;
+    if (it.go) c.onclick = it.go;
+    el.appendChild(c);
+  });
+}
+</script>
+</body>
+</html>

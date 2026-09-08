@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PMG Compiler — Procedural Memory Graph</title>
+<link rel="stylesheet" href="pmg.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="brand"><a href="index_dev.html">PMG</a><span class="tag">Procedural Memory Graph</span></div>
+  <div class="links">
+    <a href="index_dev.html">Home</a>
+    <a href="compiler.html" class="active">Compiler</a>
+    <a href="graph.html">Graph</a>
+    <a href="idea.md" class="doc" target="_blank">Design doc</a>
+  </div>
+</div></nav>
+
+<div class="pagehero"><div class="wrap">
+  <a class="backlink" href="index_dev.html">← Architecture</a>
+  <h1>The PMG Compiler</h1>
+  <p class="sub">A <b>knowledge compiler</b>, not a perception pipeline. It transforms one messy demonstration into an explicit procedural memory — coarse to fine to hierarchical — following one principle: <b>expand first, compress later</b>.</p>
+  <div class="onthispage">
+    <a href="#pipeline">Pipeline</a>
+    <a href="#passes">Passes</a>
+    <a href="#algorithms">Algorithms</a>
+    <a href="#ir">Intermediate Representation</a>
+    <a href="#evidence">Evidence</a>
+  </div>
+</div></div>
+
+<!-- PIPELINE -->
+<section id="pipeline"><div class="wrap">
+  <div class="eyebrow">Pipeline</div>
+  <h2>Coarse → fine → hierarchical</h2>
+  <p class="lead">Rather than constructing the final graph directly from observations, the compiler builds the richest possible execution graph first, then compresses it into a stable milestone backbone.</p>
+  <div class="pipe">
+    <div class="stage"><div class="n">input</div><div class="t">Video + Audio</div><div class="d">egocentric demonstration</div></div>
+    <div class="arrow">→</div>
+    <div class="stage"><div class="n">pass 1 · online</div><div class="t">Provisional Global Spine</div><div class="d">coarse milestone hypotheses</div></div>
+    <div class="arrow">→</div>
+    <div class="stage hl"><div class="n">pass 2 · offline</div><div class="t">Procedural Expansion (IR)</div><div class="d">richest execution graph</div></div>
+    <div class="arrow">→</div>
+    <div class="stage"><div class="n">pass 3</div><div class="t">Semantic Compression</div><div class="d">validate · merge · milestones</div></div>
+    <div class="arrow">→</div>
+    <div class="stage"><div class="n">output</div><div class="t">Final PMG</div><div class="d">hierarchical memory</div></div>
+  </div>
+  <div class="chain-note" style="margin-top:24px"><div class="cn">compiler principle: Expand First. Compress Later.</div></div>
+</div></section>
+
+<!-- PASSES -->
+<section id="passes"><div class="wrap">
+  <div class="eyebrow">Passes</div>
+  <h2>Three passes, coarse to fine</h2>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div>
+      <div class="tag2">Online · lightweight</div>
+      <h3>Provisional Global Spine</h3>
+      <p>During recording, a lightweight LLM proposes coarse milestone hypotheses — semantic guesses about the task's major checkpoints. These aren't the final milestones; they guide graph construction and are corrected later against full evidence.</p>
+    </div></div>
+    <div class="step"><div class="num">2</div><div>
+      <div class="tag2">Offline · expansion</div>
+      <h3>Procedural Expansion → Intermediate Representation</h3>
+      <p>Offline, the compiler reconstructs the richest possible Local Execution Graph — Procedural States with their world representations, parameterized actions, observable conditions, and exit criteria. This is the compiler's IR: it deliberately over-captures before anything is compressed away.</p>
+    </div></div>
+    <div class="step"><div class="num">3</div><div>
+      <div class="tag2">Hierarchical · compression</div>
+      <h3>Hierarchical Semantic Compression</h3>
+      <p>The compiler validates, renames, splits, merges, and inserts milestones — deriving a stable milestone backbone from the reconstructed execution graphs. Milestones emerge here as semantic abstractions over completed execution graphs, not as things extracted directly from video.</p>
+    </div></div>
+  </div>
+</div></section>
+
+<!-- ALGORITHMS -->
+<section id="algorithms"><div class="wrap">
+  <div class="eyebrow">Algorithms</div>
+  <h2>What the passes actually run</h2>
+  <p class="lead">These are the compiler's core algorithms. Two of them are the highest-priority open problems in the whole project — because removing special recovery constructs makes everything hinge on one question: <em>"have I seen this world state before?"</em></p>
+  <div class="grid2">
+    <div class="card"><h3>State Identity <span class="badge">priority</span></h3><p>When are two observed world configurations the same Procedural State? Governs loops, demonstration merging, and graph size. Because the PMG is egocentric, matching must be viewpoint-tolerant — the planned resolution is a <em>PMG Perception Encoder</em> whose latent space is organized around procedural equivalence rather than visual similarity.</p></div>
+    <div class="card"><h3>State Segmentation <span class="badge">priority</span></h3><p>When should the compiler emit a new state instead of extending the current one? Defines the boundaries of the Local Execution Graph — and is fundamentally event-driven: new nodes only on meaningful procedural events, never from time passing alone.</p></div>
+    <div class="card"><h3>Demonstration Merging</h3><p>Fold multiple demonstrations into one memory — partly a registry-alignment problem — accumulating canonical procedures, legitimate alternatives, and recovery loops.</p></div>
+    <div class="card"><h3>Semantic Compression</h3><p>Collapse the expanded IR into stable milestones: rename, split, merge, and insert to produce the final hierarchy.</p></div>
+    <div class="card"><h3>Procedural Relevance Filter</h3><p>Operating inside a known Task / Milestone / State, the compiler asks only "what is relevant for progressing to the next state?" — discarding fidgeting, camera motion, and unrelated scene changes. This prevents graph explosion without aggressive post-processing.</p></div>
+    <div class="card"><h3>Milestone Validation</h3><p>Check the provisional spine against reconstructed evidence and reorganize it — the coarse online guesses are confirmed or replaced.</p></div>
+  </div>
+</div></section>
+
+<!-- IR -->
+<section id="ir"><div class="wrap">
+  <div class="eyebrow">Intermediate Representation</div>
+  <h2>The Local Execution Graph is the IR</h2>
+  <p class="lead">Like any compiler, PMG has an intermediate representation between the raw input and the final artifact. Here it is the Local Execution Graph: the richest procedural information available <em>before</em> semantic compression.</p>
+  <div class="grid2">
+    <div class="card"><h3>Over-capture first</h3><p>The IR intentionally stores more than the final graph needs — full state detail, every observed action, all candidate conditions. Nothing is thrown away until Pass 3 has the complete picture.</p></div>
+    <div class="card"><h3>Evidence for milestones</h3><p>Stable High-Level Milestones and the final PMG hierarchy are <em>derived from</em> the IR. Milestones are compression over the reconstructed execution graphs — so the IR is the evidence that justifies them.</p></div>
+  </div>
+  <p class="body">This ordering — expand into the IR, then compress into hierarchy — is what "Expand First, Compress Later" means concretely. The IR makes the compressions defensible: every milestone can point back to the procedural evidence it summarizes.</p>
+</div></section>
+
+<!-- EVIDENCE -->
+<section id="evidence"><div class="wrap">
+  <div class="eyebrow">Evidence</div>
+  <h2>Grounded in a real demonstration</h2>
+  <p class="lead">One real 10-minute demonstration — desoldering a header, including a genuine failure and strategy switch — is the source material the compiler consumes. Every Procedural State references the frames it was compiled from.</p>
+
+  <figure>
+    <video controls muted playsinline loop poster="assets/poster.jpg" preload="metadata">
+      <source src="assets/desolder_ff.mp4" type="video/mp4">
+    </video>
+    <figcaption>Source demonstration · 10:01 @ 50 fps, shown at 12×</figcaption>
+  </figure>
+
+  <div class="strip">
+    <figure><img src="frames/s1a_b.jpg" alt=""><div class="cap">Board Mounted</div></figure>
+    <figure><img src="frames/s2a_b.jpg" alt=""><div class="cap">Spacer Broken</div></figure>
+    <figure><img src="frames/s3b_b.jpg" alt=""><div class="cap">Iron Heating</div></figure>
+    <figure><img src="frames/s5b_b.jpg" alt=""><div class="cap">Solder Molten</div></figure>
+    <figure><img src="frames/s8b_b.jpg" alt=""><div class="cap">Pin Pulling</div></figure>
+    <figure><img src="frames/s9c_b.jpg" alt=""><div class="cap">Holes Cleared</div></figure>
+  </div>
+  <figcaption>Frame ranges become Procedural States — the Frame Range is the canonical temporal reference; timestamps and duration are derived, never stored separately.</figcaption>
+
+  <div class="grid2" style="margin-top:34px">
+    <div class="card"><h3 style="color:var(--physics)">Kept — procedurally relevant</h3><p style="color:#42506a">Intentional actions, world changes, contact changes, object interactions, state verification, alternatives, recovery, and anything that influences future execution.</p></div>
+    <div class="card"><h3 style="color:var(--dim)">Discarded — incidental</h3><p style="color:#42506a">Background movement, human fidgeting, unrelated object motion, camera shake, irrelevant conversation — anything not needed to reproduce the task.</p></div>
+  </div>
+
+  <p class="body" style="margin-top:26px">See the compiled result in the <a href="graph.html">Graph</a> — or explore it directly in the <a href="pmg_viewer.html" target="_blank">interactive viewer ↗</a>.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <div>The PMG Compiler · working research draft · <span class="draft">v0.10</span></div>
+  <div>
+    <a href="index_dev.html">Home</a> ·
+    <a href="graph.html">Graph</a> ·
+    <a href="pmg_viewer.html" target="_blank">Interactive viewer</a> ·
+    <a href="idea.md" target="_blank">Design doc</a>
+  </div>
+</div></footer>
+
+</body>
+</html>
